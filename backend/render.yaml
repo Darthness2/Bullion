@@ -1,0 +1,32 @@
+# Render Blueprint for the Bullion backend proxy.
+# Deploy: connect this repo in Render, Render detects render.yaml, set the
+# SNAPTRADE_* env keys in the dashboard (or below), and deploy. The service
+# URL becomes your BULLION_BACKEND_URL (set it via xcconfig/build setting).
+services:
+  - type: web
+    name: bullion-backend
+    env: node
+    plan: free
+    region: oregon
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 8787
+      # Set the following in the Render dashboard (do NOT commit real values):
+      - key: SNAPTRADE_CLIENT_ID
+        sync: false
+      - key: SNAPTRADE_CONSUMER_KEY
+        sync: false
+      - key: SNAPTRADE_USER_ID
+        sync: false
+      - key: SNAPTRADE_USER_SECRET
+        sync: false
+      - key: SNAPTRADE_REDIRECT_URI
+        value: ledger://snaptrade
+      - key: CORS_ORIGIN
+        sync: false
