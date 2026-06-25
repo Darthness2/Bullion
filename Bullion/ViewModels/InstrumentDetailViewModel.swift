@@ -9,12 +9,17 @@ final class InstrumentDetailViewModel {
     var candles: LoadState<[Candle]> = .idle
     var news: LoadState<[NewsItem]> = .idle
     var selectedRange: ChartRange = .oneM {
-        didSet { Task { await loadCandles() } }
+        didSet {
+            guard selectedRange != oldValue else { return }
+            candlesTask?.cancel()
+            candlesTask = Task { await loadCandles() }
+        }
     }
     var isWatched = false
 
     private let provider: any MarketDataProvider
     private let watchlist: WatchlistViewModel
+    private var candlesTask: Task<Void, Never>?
 
     init(instrument: Instrument, provider: any MarketDataProvider, watchlist: WatchlistViewModel) {
         self.instrument = instrument
@@ -57,11 +62,16 @@ final class InstrumentDetailViewModel {
 
     @MainActor
     func loadCandles() async {
+        let range = selectedRange
         candles = .loading
         do {
-            let c = try await provider.candles(instrument.symbol, range: selectedRange)
+            let c = try await provider.candles(instrument.symbol, range: range)
+            // A newer range was selected while this was in flight — drop the
+            // stale result rather than clobbering the current range's data.
+            guard !Task.isCancelled, range == selectedRange else { return }
             candles = c.isEmpty ? .empty : .loaded(c)
         } catch {
+            guard !Task.isCancelled, range == selectedRange else { return }
             candles = .failed(error.localizedDescription)
         }
     }

@@ -63,7 +63,10 @@ final class YahooFinanceProvider: MarketDataProvider, @unchecked Sendable {
         return Quote(
             symbol: symbol,
             last: meta.regularMarketPrice ?? 0,
-            open: meta.regularMarketDayLow != nil ? meta.chartPreviousClose : nil,  // Yahoo doesn't give open in meta
+            // Yahoo's chart `meta` doesn't expose the session open; use the first
+            // candle's open from the 5d/1d series rather than mislabeling the
+            // previous close as the open.
+            open: chart.candles.last?.o,
             previousClose: meta.chartPreviousClose,
             dayLow: meta.regularMarketDayLow,
             dayHigh: meta.regularMarketDayHigh,
@@ -131,7 +134,8 @@ final class YahooFinanceProvider: MarketDataProvider, @unchecked Sendable {
         return (response.news ?? []).compactMap { a in
             guard let urlString = a.link, let url = URL(string: urlString) else { return nil }
             let date = a.providerPublishTime.map { Date(timeIntervalSince1970: TimeInterval($0)) } ?? Date()
-            let id = abs((a.uuid ?? a.title).hashValue)
+            // Stable across launches: prefer Yahoo's uuid, fall back to the link.
+            let id = a.uuid ?? urlString
             return NewsItem(
                 id: id,
                 headline: a.title,
@@ -316,20 +320,53 @@ final class YahooFinanceProvider: MarketDataProvider, @unchecked Sendable {
     // MARK: - HTTP
 
     private func fetch<T: Decodable>(_ url: URL) async throws -> T {
-        let (data, response) = try await session.data(from: url)
-        guard let http = response as? HTTPURLResponse else {
-            throw APIClient.APIError.invalidResponse
+        // Yahoo's public endpoints intermittently throttle (401/429) and
+        // occasionally 5xx. Retry those a couple of times with backoff before
+        // surfacing the error; other statuses fail fast.
+        let retriableStatuses: Set<Int> = [401, 429, 500, 502, 503, 504]
+        let maxAttempts = 3
+        var lastError: Error = APIClient.APIError.invalidResponse
+
+        for attempt in 0..<maxAttempts {
+            do {
+                let (data, response) = try await session.data(from: url)
+                guard let http = response as? HTTPURLResponse else {
+                    throw APIClient.APIError.invalidResponse
+                }
+                guard (200..<300).contains(http.statusCode) else {
+                    let body = String(data: data, encoding: .utf8) ?? "Unknown"
+                    let error = APIClient.APIError.http(status: http.statusCode, body: body)
+                    if retriableStatuses.contains(http.statusCode), attempt < maxAttempts - 1 {
+                        lastError = error
+                        try await backoff(attempt)
+                        continue
+                    }
+                    throw error
+                }
+                do {
+                    return try decoder.decode(T.self, from: data)
+                } catch let e as DecodingError {
+                    throw APIClient.APIError.decoding(e)
+                }
+            } catch let e as APIClient.APIError {
+                throw e
+            } catch {
+                // Transport error (timeout, connection lost): retry, then give up.
+                lastError = APIClient.APIError.network(error)
+                if attempt < maxAttempts - 1 {
+                    try await backoff(attempt)
+                    continue
+                }
+                throw lastError
+            }
         }
-        guard (200..<300).contains(http.statusCode) else {
-            let body = String(data: data, encoding: .utf8) ?? "Unknown"
-            throw APIClient.APIError.http(status: http.statusCode, body: body)
-        }
-        do {
-            return try decoder.decode(T.self, from: data)
-        } catch let e as DecodingError {
-            throw APIClient.APIError.decoding(e)
-        } catch {
-            throw APIClient.APIError.network(error)
-        }
+        throw lastError
+    }
+
+    /// Exponential backoff: ~0.4s, 0.8s, … with light jitter.
+    private func backoff(_ attempt: Int) async throws {
+        let base = 0.4 * pow(2.0, Double(attempt))
+        let jitter = Double.random(in: 0...0.2)
+        try await Task.sleep(nanoseconds: UInt64((base + jitter) * 1_000_000_000))
     }
 }

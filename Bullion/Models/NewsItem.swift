@@ -1,7 +1,7 @@
 import Foundation
 
 struct NewsItem: Identifiable, Codable, Hashable, Sendable {
-    let id: Int
+    let id: String
     let headline: String
     let summary: String?
     let source: String

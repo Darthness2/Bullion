@@ -164,13 +164,13 @@ final class MockMarketDataProvider: MarketDataProvider, @unchecked Sendable {
         try await Task.sleep(for: .milliseconds(200))
         var items: [NewsItem] = []
         for (i, headline) in headlines.prefix(5).enumerated() {
-            let id = deterministicInt(symbol: "\(symbol)-\(i)", max: 1_000_000)
+            let id = "\(symbol)-\(i)"
             items.append(NewsItem(
                 id: id,
                 headline: "\(headline) — \(symbol)",
                 summary: "Summary excerpt for \(symbol). This is mock content for preview purposes.",
                 source: ["Bloomberg", "Reuters", "CNBC", "WSJ", "MarketWatch"][i % 5],
-                url: URL(string: "https://example.com/news/\(id)")!,
+                url: URL(string: "https://example.com/news/\(deterministicInt(symbol: id, max: 1_000_000))")!,
                 publishedAt: Date().addingTimeInterval(-Double(i * 3600)),
                 relatedSymbols: [symbol]
             ))

@@ -47,6 +47,8 @@ struct Transaction: Identifiable, Codable, Hashable, Sendable {
     let quantity: Double?
     let price: Double?
     let amount: Double?
-    let date: Date
+    /// Optional: a missing/unparseable upstream date must render as "—",
+    /// never silently become "now" (which would corrupt history & sorting).
+    let date: Date?
     let description: String
 }

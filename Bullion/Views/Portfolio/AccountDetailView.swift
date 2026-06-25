@@ -151,7 +151,7 @@ struct AccountDetailView: View {
                 Text(t.description)
                     .font(Typography.callout)
                     .foregroundColor(Theme.Colors.textPrimary)
-                Text(t.date.shortDateText)
+                Text(t.date?.shortDateText ?? "—")
                     .font(Typography.caption)
                     .foregroundColor(Theme.Colors.textSecondary)
             }

@@ -103,30 +103,41 @@ struct PortfolioDashboardView: View {
         .padding(.top, Theme.Metrics.spacingS)
     }
 
+    @ViewBuilder
     private var dayChangePill: some View {
-        let change = vm.totalDayChange
-        let isUp = change >= 0
-        return HStack(spacing: 4) {
-            Image(systemName: isUp ? "arrowtriangle.up.fill" : "arrowtriangle.down.fill")
-                .font(.system(size: 8))
-                .symbolEffect(.bounce, value: isUp)
-            Text((isUp ? "+" : "") + NumberFormatting.price(change))
-                .monospacedDigit()
-            Text("(\(NumberFormatting.signedPercent(vm.totalDayChangePercent)))")
-                .monospacedDigit()
+        if vm.hasDayChangeData {
+            let change = vm.totalDayChange
+            let isUp = change >= 0
+            let tint = isUp ? Theme.Colors.positive : Theme.Colors.negative
+            HStack(spacing: 4) {
+                Image(systemName: isUp ? "arrowtriangle.up.fill" : "arrowtriangle.down.fill")
+                    .font(.system(size: 8))
+                    .symbolEffect(.bounce, value: isUp)
+                Text((isUp ? "+" : "") + NumberFormatting.price(change))
+                    .monospacedDigit()
+                Text("(\(NumberFormatting.signedPercent(vm.totalDayChangePercent)))")
+                    .monospacedDigit()
+            }
+            .font(Typography.subheadline)
+            .foregroundColor(tint)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .background(tint.opacity(0.12))
+            .clipShape(Capsule())
+            .overlay(
+                Capsule().stroke(tint.opacity(0.22), lineWidth: Theme.Metrics.hairline)
+            )
+        } else {
+            // No day-change data from the brokerage — show a neutral state
+            // rather than a misleading green "+$0.00 (+0.00%)".
+            Text("Day change unavailable")
+                .font(Typography.caption)
+                .foregroundColor(Theme.Colors.textSecondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .background(Theme.Colors.textSecondary.opacity(0.08))
+                .clipShape(Capsule())
         }
-        .font(Typography.subheadline)
-        .foregroundColor(isUp ? Theme.Colors.positive : Theme.Colors.negative)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 5)
-        .background(
-            (isUp ? Theme.Colors.positive : Theme.Colors.negative).opacity(0.12)
-        )
-        .clipShape(Capsule())
-        .overlay(
-            Capsule().stroke((isUp ? Theme.Colors.positive : Theme.Colors.negative).opacity(0.22),
-                             lineWidth: Theme.Metrics.hairline)
-        )
     }
 
     // MARK: - Equity curve (sparkline of portfolio value)

@@ -6,13 +6,17 @@ import AuthenticationServices
 /// happen server-side. The app only calls our backend's REST API.
 final class BackendPortfolioService: PortfolioService, @unchecked Sendable {
 
+    private static let iso8601 = ISO8601DateFormatter()
+
     private let baseURL: URL
     private let session: URLSession
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
-    init(baseURL: URL = URL(string: Secrets.backendBaseURL)!) {
-        self.baseURL = baseURL
+    init(baseURL: URL? = URL(string: Secrets.backendBaseURL)) {
+        // Fall back to localhost rather than crashing if Secrets.backendBaseURL
+        // is misconfigured (it's a gitignored, hand-edited file).
+        self.baseURL = baseURL ?? URL(string: "http://localhost:8787")!
         self.session = URLSession.shared
         let d = JSONDecoder()
         d.dateDecodingStrategy = .iso8601
@@ -74,7 +78,7 @@ final class BackendPortfolioService: PortfolioService, @unchecked Sendable {
                 quantity: t.quantity,
                 price: t.price,
                 amount: t.amount,
-                date: ISO8601DateFormatter().date(from: t.date ?? "") ?? Date(),
+                date: t.date.flatMap { Self.iso8601.date(from: $0) },
                 description: t.description ?? ""
             )
         }
@@ -145,10 +149,18 @@ final class BackendPortfolioService: PortfolioService, @unchecked Sendable {
 
     // MARK: - Private HTTP helpers
 
+    /// Adds the shared backend bearer token when one is configured.
+    private func authorized(_ req: inout URLRequest) {
+        if !Secrets.backendAPIToken.isEmpty {
+            req.setValue("Bearer \(Secrets.backendAPIToken)", forHTTPHeaderField: "Authorization")
+        }
+    }
+
     private func get<T: Decodable>(_ path: String) async throws -> T {
         let url = baseURL.appendingPathComponent(path)
         var req = URLRequest(url: url)
         req.httpMethod = "GET"
+        authorized(&req)
         return try await execute(req)
     }
 
@@ -157,6 +169,7 @@ final class BackendPortfolioService: PortfolioService, @unchecked Sendable {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        authorized(&req)
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
         return try await execute(req)
     }
@@ -165,6 +178,7 @@ final class BackendPortfolioService: PortfolioService, @unchecked Sendable {
         let url = baseURL.appendingPathComponent(path)
         var req = URLRequest(url: url)
         req.httpMethod = "DELETE"
+        authorized(&req)
         return try await execute(req)
     }
 
@@ -283,15 +297,21 @@ enum PortfolioError: LocalizedError {
 private final class WebAuthSession: NSObject, ASWebAuthenticationPresentationContextProviding {
     private let url: URL
     private let scheme: String
+    /// Strong reference held for the whole presentation. Without this the
+    /// `ASWebAuthenticationSession` is only retained by the start closure and
+    /// can be deallocated mid-flight, tearing the auth sheet down.
+    private var authSession: ASWebAuthenticationSession?
 
     init(url: URL, scheme: String) {
         self.url = url
         self.scheme = scheme
     }
 
+    @MainActor
     func start() async throws {
         return try await withCheckedThrowingContinuation { continuation in
-            let session = ASWebAuthenticationSession(url: url, callbackURLScheme: scheme) { _, error in
+            let session = ASWebAuthenticationSession(url: url, callbackURLScheme: scheme) { [weak self] _, error in
+                self?.authSession = nil
                 if let error = error as? ASWebAuthenticationSessionError, error.code == .canceledLogin {
                     continuation.resume(throwing: PortfolioError.authenticationCancelled)
                 } else if let error {
@@ -302,9 +322,8 @@ private final class WebAuthSession: NSObject, ASWebAuthenticationPresentationCon
             }
             session.presentationContextProvider = self
             session.prefersEphemeralWebBrowserSession = false
-            DispatchQueue.main.async {
-                session.start()
-            }
+            self.authSession = session
+            session.start()
         }
     }
 

@@ -2,34 +2,28 @@ import Foundation
 
 /// Centralized number formatting helpers.
 enum NumberFormatting {
-    private static let currencyFormatter: NumberFormatter = {
+    /// Non-finite guard shared by every helper: NaN / ±Infinity from a bad
+    /// upstream payload should render as an em dash, never "nan"/"inf".
+    private static let nonFinitePlaceholder = "—"
+
+    /// Currency with optional fixed decimal digits.
+    ///
+    /// A fresh `NumberFormatter` is created per call: `NumberFormatter` is not
+    /// thread-safe and mutating a shared instance for `digits` would leak that
+    /// setting into later default-digit calls.
+    static func currency(_ value: Double, digits: Int? = nil) -> String {
+        guard value.isFinite else { return nonFinitePlaceholder }
         let f = NumberFormatter()
         f.numberStyle = .currency
         f.currencyCode = "USD"
-        f.maximumFractionDigits = 2
-        f.minimumFractionDigits = 2
-        return f
-    }()
-
-    private static let largeNumberFormatter: NumberFormatter = {
-        let f = NumberFormatter()
-        f.numberStyle = .decimal
-        f.maximumFractionDigits = 2
-        f.minimumFractionDigits = 0
-        return f
-    }()
-
-    /// Currency with optional fixed decimal digits.
-    static func currency(_ value: Double, digits: Int? = nil) -> String {
-        if let digits {
-            currencyFormatter.maximumFractionDigits = digits
-            currencyFormatter.minimumFractionDigits = digits
-        }
-        return currencyFormatter.string(from: NSNumber(value: value)) ?? String(value)
+        f.maximumFractionDigits = digits ?? 2
+        f.minimumFractionDigits = digits ?? 2
+        return f.string(from: NSNumber(value: value)) ?? String(value)
     }
 
     /// Plain decimal with optional fixed digits.
     static func decimal(_ value: Double, digits: Int? = nil) -> String {
+        guard value.isFinite else { return nonFinitePlaceholder }
         let f = NumberFormatter()
         f.numberStyle = .decimal
         f.maximumFractionDigits = digits ?? 2
@@ -44,6 +38,7 @@ enum NumberFormatting {
 
     /// Compact notation for large numbers: 1.2K, 3.4M, 5.6B, 7.8T.
     static func compact(_ value: Double) -> String {
+        guard value.isFinite else { return nonFinitePlaceholder }
         let absVal = abs(value)
         let suffix: String
         let divisor: Double
@@ -69,6 +64,7 @@ enum NumberFormatting {
 
     /// Percentage from a 0–100 value, e.g. 1.23%.
     static func percent(_ value: Double, digits: Int = 2) -> String {
+        guard value.isFinite else { return nonFinitePlaceholder }
         let f = NumberFormatter()
         f.numberStyle = .decimal
         f.maximumFractionDigits = digits

@@ -93,7 +93,7 @@ struct OnboardingView: View {
                     appNav.selectedTab = .portfolio
                     finishOnboarding()
                 } label: {
-                    Text("Connect brokerage")
+                    Text("Connect a brokerage now")
                         .font(Typography.headline)
                         .foregroundColor(Theme.Colors.textPrimary)
                         .frame(maxWidth: .infinity, minHeight: 48)

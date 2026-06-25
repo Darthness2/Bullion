@@ -55,7 +55,7 @@ struct TransactionsView: View {
                 Text(t.description)
                     .font(Typography.callout)
                     .foregroundColor(Theme.Colors.textPrimary)
-                Text("\(t.date.shortDateText) · \(t.type.capitalized)")
+                Text("\(t.date?.shortDateText ?? "—") · \(t.type.capitalized)")
                     .font(Typography.caption)
                     .foregroundColor(Theme.Colors.textSecondary)
             }
@@ -85,10 +85,19 @@ struct TransactionsView: View {
     private func grouped(_ txns: [Transaction]) -> [TxnGroup] {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMMM yyyy"
-        let groups = Dictionary(grouping: txns) { formatter.string(from: $0.date) }
+        let undatedKey = "Date unavailable"
+        let groups = Dictionary(grouping: txns) { txn in
+            txn.date.map { formatter.string(from: $0) } ?? undatedKey
+        }
         return groups.keys.sorted { a, b in
-            guard let da = groups[a]?.first?.date, let db = groups[b]?.first?.date else { return false }
-            return da > db
+            // Undated transactions sort to the bottom.
+            let da = groups[a]?.compactMap(\.date).max()
+            let db = groups[b]?.compactMap(\.date).max()
+            switch (da, db) {
+            case let (a?, b?): return a > b
+            case (nil, _):     return false
+            case (_, nil):     return true
+            }
         }.map { TxnGroup(key: $0, transactions: groups[$0] ?? []) }
     }
 }

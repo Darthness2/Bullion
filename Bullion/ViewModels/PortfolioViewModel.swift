@@ -25,14 +25,24 @@ final class PortfolioViewModel {
             let accs = try await service.accounts()
             self.isLinked = !accs.isEmpty
             accounts = accs.isEmpty ? .empty : .loaded(accs)
+
+            // Reset so data for accounts that were removed/disconnected since the
+            // last load doesn't linger in the totals.
+            var holdings: [String: [Holding]] = [:]
+            var transactions: [String: [Transaction]] = [:]
             for acc in accs {
-                async let holdings = service.holdings(accountId: acc.id)
-                async let txns = service.transactions(accountId: acc.id)
-                let (h, t) = await (try holdings, try txns)
-                holdingsByAccount[acc.id] = h
-                transactionsByAccount[acc.id] = t
+                // Fetch per account, isolating failures: one account that fails
+                // to sync must not wipe out the others' already-fetched data.
+                async let holdingsTask = service.holdings(accountId: acc.id)
+                async let txnsTask = service.transactions(accountId: acc.id)
+                holdings[acc.id] = (try? await holdingsTask) ?? []
+                transactions[acc.id] = (try? await txnsTask) ?? []
             }
+            holdingsByAccount = holdings
+            transactionsByAccount = transactions
         } catch {
+            holdingsByAccount = [:]
+            transactionsByAccount = [:]
             accounts = .failed(error.localizedDescription)
         }
     }
@@ -102,6 +112,12 @@ final class PortfolioViewModel {
 
     var totalDayChange: Double {
         holdingsByAccount.values.flatMap { $0 }.compactMap { $0.dayChange }.reduce(0, +)
+    }
+
+    /// Whether any holding reported a day change. When false, the day-change
+    /// figures are "unavailable" (render "—"), not a genuine flat 0.
+    var hasDayChangeData: Bool {
+        allHoldings.contains { $0.dayChange != nil }
     }
 
     var totalDayChangePercent: Double {

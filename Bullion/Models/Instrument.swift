@@ -15,9 +15,12 @@ struct Instrument: Identifiable, Codable, Hashable, Sendable {
     let exchange: String?
     var underlying: String? = nil   // futures-only: underlying asset symbol
 
-    init(id: String = UUID().uuidString, symbol: String, name: String,
+    init(id: String? = nil, symbol: String, name: String,
          type: InstrumentType, exchange: String?, underlying: String? = nil) {
-        self.id = id
+        // Identity is the symbol by default so the same instrument keeps a
+        // stable id across refreshes (a random UUID would make SwiftUI `ForEach`
+        // re-create rows and reset scroll/selection on every reload).
+        self.id = id ?? symbol
         self.symbol = symbol
         self.name = name
         self.type = type
