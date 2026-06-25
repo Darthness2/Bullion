@@ -3,31 +3,66 @@
 // All SnapTrade operations that require the consumerKey happen HERE —
 // never in the iOS app. The app calls these endpoints only.
 //
-// Verified against SnapTrade SDK v10 (snaptrade-typescript-sdk@10.0.14)
-// by inspecting the actual runtime exports:
-//   - new Snaptrade({ clientId, consumerKey })
-//   - s.authentication.registerSnapTradeUser({ userId })
-//   - s.authentication.loginSnapTradeUser({ userId, userSecret, ... })
-//   - s.connections.listBrokerageAuthorizations({ userId, userSecret })
-//   - s.connections.listBrokerageAuthorizationAccounts({ authorizationId, userId, userSecret })
-//   - s.connections.deleteConnection({ authorizationId, userId, userSecret })
-//   - s.connections.refreshBrokerageAuthorization({ authorizationId, userId, userSecret })
-//   - s.accountInformation.getUserAccountPositions({ accountId, userId, userSecret })
-//   - s.accountInformation.getUserAccountBalance({ accountId, userId, userSecret })
-//   - s.accountInformation.getUserAccountOrders({ accountId, userId, userSecret })
+// Verified against SnapTrade SDK v10 (snaptrade-typescript-sdk@10.0.14).
 
 import { Router } from "express";
+import { z } from "zod";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const router = Router();
 
-// TODO: real auth — replace with JWT/session/OAuth tied to real user identity.
-// For v1 dev we use the SnapTrade userId/userSecret from .env or
-// ~/.config/snaptrade/settings.json.
-// Read lazily because ES module imports are hoisted before dotenv.config().
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// Where a registered user's secret is persisted so it survives restarts.
+// Gitignored — never commit. Override with SNAPTRADE_SECRET_FILE.
+const SECRET_FILE =
+  process.env.SNAPTRADE_SECRET_FILE ||
+  path.join(__dirname, "..", ".snaptrade-secret.json");
+
+// --- Shared-token auth gate ----------------------------------------------
+// v1 has a single backend user, so this is a shared bearer token rather than
+// per-user identity (tracked as a follow-up). If BULLION_API_TOKEN is unset we
+// stay open for local dev but server.js logs a loud warning at boot.
+function requireAuth(req, res, next) {
+  const expected = process.env.BULLION_API_TOKEN;
+  if (!expected) return next(); // dev mode: open (warned at startup)
+  const header = req.get("authorization") || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+  if (token !== expected) {
+    return res.status(401).json({ error: "Unauthorized." });
+  }
+  next();
+}
+
+// --- User secret: load from env or persisted file, persist on register ----
+function loadPersistedSecret() {
+  if (process.env.SNAPTRADE_USER_SECRET) return process.env.SNAPTRADE_USER_SECRET;
+  try {
+    const raw = fs.readFileSync(SECRET_FILE, "utf8");
+    return JSON.parse(raw)?.userSecret || "";
+  } catch {
+    return "";
+  }
+}
+
+function persistSecret(userSecret) {
+  process.env.SNAPTRADE_USER_SECRET = userSecret;
+  try {
+    fs.writeFileSync(
+      SECRET_FILE,
+      JSON.stringify({ userSecret }, null, 2),
+      { mode: 0o600 }
+    );
+  } catch (e) {
+    console.error("Failed to persist SnapTrade secret:", e?.message);
+  }
+}
+
 function getUser() {
   return {
     userId: process.env.SNAPTRADE_USER_ID || "bullion-dev-user",
-    userSecret: process.env.SNAPTRADE_USER_SECRET || "",
+    userSecret: loadPersistedSecret(),
   };
 }
 
@@ -52,79 +87,109 @@ function requireKeys(_req, res, next) {
   next();
 }
 
+// Wraps an async handler so a rejected promise reaches Express' error handler
+// instead of hanging the request.
+const asyncHandler = (fn) => (req, res, next) =>
+  Promise.resolve(fn(req, res, next)).catch(next);
+
+// Require a registered user (userSecret present) for data endpoints.
+function requireUser(req, res, next) {
+  if (!getUser().userSecret) {
+    return res
+      .status(400)
+      .json({ error: "User not registered. Call /register-user first." });
+  }
+  next();
+}
+
+// Validate a route param against a schema; 400 on failure.
+const validateParam = (name, schema) => (req, res, next) => {
+  const result = schema.safeParse(req.params[name]);
+  if (!result.success) {
+    return res.status(400).json({ error: `Invalid ${name}.` });
+  }
+  req.params[name] = result.data;
+  next();
+};
+
+// SnapTrade ids are opaque but bounded; reject empty / absurdly long values.
+const idSchema = z.string().trim().min(1).max(128);
+
+router.use(requireAuth);
 router.use(requireKeys);
 
 // POST /snaptrade/register-user
 // Idempotent: registers or returns existing SnapTrade user for this person.
-// If the user already exists (400 from SnapTrade) and we already have a
-// userSecret in .env, we just return the userId.
-router.post("/register-user", async (_req, res) => {
-  // If we already have a userSecret, the user is already registered.
-  const user = getUser();
-  if (user.userSecret) {
-    return res.json({ userId: user.userId, registered: true, existing: true });
-  }
-  try {
-    const sdk = await getSnapTrade();
-    const response = await sdk.authentication.registerSnapTradeUser({
-      userId: user.userId,
-    });
-    const data = response.data || response;
-    if (data?.userSecret) {
-      process.env.SNAPTRADE_USER_SECRET = data.userSecret;
+router.post(
+  "/register-user",
+  asyncHandler(async (_req, res) => {
+    const user = getUser();
+    if (user.userSecret) {
+      return res.json({ userId: user.userId, registered: true, existing: true });
     }
-    res.json({ userId: data?.userId || user.userId, registered: true });
-  } catch (err) {
-    // 400 usually means the user already exists but we don't have the secret.
-    // In that case, the operator needs to reset the secret via the SnapTrade dashboard.
-    console.error("register-user failed:", err?.message?.substring(0, 200) || err);
-    res.status(500).json({
-      error: "Failed to register SnapTrade user. If the user already exists, set SNAPTRADE_USER_SECRET in .env.",
-    });
-  }
-});
+    try {
+      const sdk = await getSnapTrade();
+      const response = await sdk.authentication.registerSnapTradeUser({
+        userId: user.userId,
+      });
+      const data = response.data || response;
+      if (data?.userSecret) {
+        persistSecret(data.userSecret);
+      }
+      res.json({ userId: data?.userId || user.userId, registered: true });
+    } catch (err) {
+      console.error("register-user failed:", err?.message?.substring(0, 200) || "error");
+      res.status(500).json({
+        error:
+          "Failed to register SnapTrade user. If the user already exists, set SNAPTRADE_USER_SECRET in .env.",
+      });
+    }
+  })
+);
 
 // POST /snaptrade/connection-portal-url
-// Returns a one-time Connection Portal login URL for ASWebAuthenticationSession.
-router.post("/connection-portal-url", async (req, res) => {
-  try {
-    const user = getUser();
-    if (!user.userSecret) {
-      return res.status(400).json({ error: "User not registered. Call /register-user first." });
+const portalBodySchema = z.object({ brokerId: z.string().trim().max(64).optional() });
+
+router.post(
+  "/connection-portal-url",
+  requireUser,
+  asyncHandler(async (req, res) => {
+    const parsed = portalBodySchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid request body." });
     }
+    const user = getUser();
     const sdk = await getSnapTrade();
-    const body = req.body || {};
+    const { brokerId } = parsed.data;
     const response = await sdk.authentication.loginSnapTradeUser({
       userId: user.userId,
       userSecret: user.userSecret,
       redirectURI: process.env.SNAPTRADE_REDIRECT_URI || "ledger://snaptrade-callback",
-      ...(body.brokerId ? { broker: body.brokerId } : {}),
+      ...(brokerId ? { broker: brokerId } : {}),
     });
     const data = response.data || response;
     res.json({ url: data?.connectionPortalUrl || data?.redirectURI });
-  } catch (err) {
-    console.error("connection-portal-url failed:", err?.message || err);
-    res.status(500).json({ error: "Failed to generate Connection Portal URL." });
-  }
-});
+  })
+);
 
 // GET /snaptrade/accounts
-// Lists all connected brokerage accounts for the user.
-router.get("/accounts", async (_req, res) => {
-  try {
+router.get(
+  "/accounts",
+  asyncHandler(async (_req, res) => {
     const user = getUser();
     if (!user.userSecret) {
-      return res.json({ accounts: [] });
+      return res.json({ accounts: [], partial: false });
     }
     const sdk = await getSnapTrade();
-    // Step 1: list connections (brokerage authorizations).
     const connectionsResp = await sdk.connections.listBrokerageAuthorizations({
       userId: user.userId,
       userSecret: user.userSecret,
     });
-    const connections = JSON.parse(JSON.stringify(connectionsResp.data || connectionsResp || []));
-    // Step 2: for each connection, list its accounts.
+    const connections = JSON.parse(
+      JSON.stringify(connectionsResp.data || connectionsResp || [])
+    );
     const allAccounts = [];
+    const failedConnections = [];
     for (const conn of connections) {
       try {
         const accsResp = await sdk.connections.listBrokerageAuthorizationAccounts({
@@ -146,19 +211,25 @@ router.get("/accounts", async (_req, res) => {
         }
       } catch (e) {
         console.error(`Failed to list accounts for connection ${conn.id}:`, e?.message);
+        failedConnections.push(conn.id);
       }
     }
-    res.json({ accounts: allAccounts });
-  } catch (err) {
-    console.error("accounts failed:", err?.message || err);
-    res.status(500).json({ error: "Failed to list accounts." });
-  }
-});
+    // Surface partial failures so the client can warn instead of silently
+    // showing an incomplete portfolio.
+    res.json({
+      accounts: allAccounts,
+      partial: failedConnections.length > 0,
+      failedConnections,
+    });
+  })
+);
 
 // GET /snaptrade/accounts/:id/holdings
-// Returns positions + balances for one account.
-router.get("/accounts/:id/holdings", async (req, res) => {
-  try {
+router.get(
+  "/accounts/:id/holdings",
+  validateParam("id", idSchema),
+  requireUser,
+  asyncHandler(async (req, res) => {
     const sdk = await getSnapTrade();
     const accountId = req.params.id;
     const user = getUser();
@@ -169,25 +240,23 @@ router.get("/accounts/:id/holdings", async (req, res) => {
       sdk.accountInformation.getUserAccountBalance(params),
     ]);
 
-    const positions = positionsResp.data || positionsResp || [];
-    const balances = balancesResp.data || balancesResp || {};
+    const cleanPositions = JSON.parse(
+      JSON.stringify(positionsResp.data || positionsResp || [])
+    );
+    const cleanBalances = JSON.parse(
+      JSON.stringify(balancesResp.data || balancesResp || {})
+    );
+    const positions = Array.isArray(cleanPositions) ? cleanPositions : [];
 
-    // The SDK wraps objects with getters that cause recursive access.
-    // Stringify + re-parse to get plain objects.
-    const cleanPositions = JSON.parse(JSON.stringify(positions));
-    const cleanBalances = JSON.parse(JSON.stringify(balances));
-
-    const holdings = cleanPositions.map((p) => {
+    const holdings = positions.map((p) => {
       const units = p.units ?? p.quantity ?? 0;
       const price = p.price ?? 0;
-      // SnapTrade SDK v10 wraps symbol in an extra layer:
-      // p.symbol.symbol.symbol = "LLY", p.symbol.symbol.description = "Eli Lilly..."
       const symObj = p.symbol?.symbol ?? p.symbol ?? {};
       const sym = symObj.symbol || symObj.raw_symbol || "UNKNOWN";
       const name = symObj.description || sym || "Unknown";
       return {
         symbol: sym,
-        name: name,
+        name,
         quantity: units,
         avgCost: p.averagePurchasePrice ?? p.averagePrice ?? null,
         marketValue: units * price,
@@ -207,16 +276,15 @@ router.get("/accounts/:id/holdings", async (req, res) => {
       holdings,
       lastSynced: new Date().toISOString(),
     });
-  } catch (err) {
-    console.error("holdings failed:", err?.message || err);
-    res.status(500).json({ error: "Failed to fetch holdings." });
-  }
-});
+  })
+);
 
 // GET /snaptrade/accounts/:id/transactions
-// Returns recent activity (orders).
-router.get("/accounts/:id/transactions", async (req, res) => {
-  try {
+router.get(
+  "/accounts/:id/transactions",
+  validateParam("id", idSchema),
+  requireUser,
+  asyncHandler(async (req, res) => {
     const sdk = await getSnapTrade();
     const accountId = req.params.id;
     const user = getUser();
@@ -225,8 +293,8 @@ router.get("/accounts/:id/transactions", async (req, res) => {
       userId: user.userId,
       userSecret: user.userSecret,
     });
-    const rawOrders = ordersResp.data || ordersResp || [];
-    const orders = JSON.parse(JSON.stringify(rawOrders));
+    const rawOrders = JSON.parse(JSON.stringify(ordersResp.data || ordersResp || []));
+    const orders = Array.isArray(rawOrders) ? rawOrders : [];
     const transactions = orders.map((o) => {
       const symObj = o.symbol?.symbol ?? o.symbol ?? {};
       const sym = symObj.symbol || symObj.raw_symbol || "";
@@ -237,21 +305,22 @@ router.get("/accounts/:id/transactions", async (req, res) => {
         quantity: o.units,
         price: o.price,
         amount: (o.units ?? 0) * (o.price ?? 0),
-        date: o.executionPrice?.asOf || o.createdDate || new Date().toISOString(),
+        // Leave null when the upstream has no usable date — the client renders
+        // "—" rather than pretending the trade happened now.
+        date: o.executionPrice?.asOf || o.createdDate || o.timeExecuted || null,
         description: `${o.action || "order"} ${o.units ?? ""} ${sym}`.trim(),
       };
     });
     res.json({ transactions });
-  } catch (err) {
-    console.error("transactions failed:", err?.message || err);
-    res.status(500).json({ error: "Failed to fetch transactions." });
-  }
-});
+  })
+);
 
 // DELETE /snaptrade/connections/:id
-// Disconnect a brokerage connection (read-only app: no trading).
-router.delete("/connections/:id", async (req, res) => {
-  try {
+router.delete(
+  "/connections/:id",
+  validateParam("id", idSchema),
+  requireUser,
+  asyncHandler(async (req, res) => {
     const sdk = await getSnapTrade();
     const user = getUser();
     await sdk.connections.deleteConnection({
@@ -260,16 +329,15 @@ router.delete("/connections/:id", async (req, res) => {
       userSecret: user.userSecret,
     });
     res.json({ disconnected: true });
-  } catch (err) {
-    console.error("disconnect failed:", err?.message || err);
-    res.status(500).json({ error: "Failed to disconnect." });
-  }
-});
+  })
+);
 
 // POST /snaptrade/refresh/:connectionId
-// Trigger a re-sync of a connection.
-router.post("/refresh/:connectionId", async (req, res) => {
-  try {
+router.post(
+  "/refresh/:connectionId",
+  validateParam("connectionId", idSchema),
+  requireUser,
+  asyncHandler(async (req, res) => {
     const sdk = await getSnapTrade();
     const user = getUser();
     await sdk.connections.refreshBrokerageAuthorization({
@@ -278,10 +346,7 @@ router.post("/refresh/:connectionId", async (req, res) => {
       userSecret: user.userSecret,
     });
     res.json({ refreshing: true });
-  } catch (err) {
-    console.error("refresh failed:", err?.message || err);
-    res.status(500).json({ error: "Failed to refresh connection." });
-  }
-});
+  })
+);
 
 export default router;
