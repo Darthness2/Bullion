@@ -44,31 +44,38 @@ extension View {
 /// Shimmer effect for skeleton loading states. Monochrome white sweep.
 struct ShimmerModifier: ViewModifier {
     @State private var phase: CGFloat = -1
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
-        content
-            .overlay(
-                GeometryReader { geo in
-                    LinearGradient(
-                        colors: [
-                            .clear,
-                            Theme.Colors.textPrimary.opacity(0.12),
-                            .clear,
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                    .frame(width: geo.size.width * 0.6)
-                    .offset(x: phase * geo.size.width * 1.6)
-                    .blur(radius: 6)
+        if reduceMotion {
+            // Reduced motion: a static dimmed overlay instead of a sweep.
+            content
+                .overlay(Theme.Colors.textPrimary.opacity(0.06).allowsHitTesting(false))
+        } else {
+            content
+                .overlay(
+                    GeometryReader { geo in
+                        LinearGradient(
+                            colors: [
+                                .clear,
+                                Theme.Colors.textPrimary.opacity(0.12),
+                                .clear,
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                        .frame(width: geo.size.width * 0.6)
+                        .offset(x: phase * geo.size.width * 1.6)
+                        .blur(radius: 6)
+                    }
+                    .allowsHitTesting(false)
+                )
+                .onAppear {
+                    withAnimation(.linear(duration: 1.4).repeatForever(autoreverses: false)) {
+                        phase = 1
+                    }
                 }
-                .allowsHitTesting(false)
-            )
-            .onAppear {
-                withAnimation(.linear(duration: 1.4).repeatForever(autoreverses: false)) {
-                    phase = 1
-                }
-            }
+        }
     }
 }
 
@@ -91,40 +98,58 @@ enum AppearVariety {
 
 private struct FadeModifier: ViewModifier {
     @State private var appeared = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func body(content: Content) -> some View {
         content.opacity(appeared ? 1 : 0)
-            .onAppear { withAnimation(Theme.Animation.gentle) { appeared = true } }
+            .onAppear {
+                if reduceMotion { appeared = true }
+                else { withAnimation(Theme.Animation.gentle) { appeared = true } }
+            }
     }
 }
 private struct SlideModifier: ViewModifier {
     @State private var appeared = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func body(content: Content) -> some View {
-        content.opacity(appeared ? 1 : 0).offset(x: appeared ? 0 : 24)
-            .onAppear { withAnimation(Theme.Animation.gentle) { appeared = true } }
+        content.opacity(appeared ? 1 : 0).offset(x: appeared ? 0 : (reduceMotion ? 0 : 24))
+            .onAppear {
+                if reduceMotion { appeared = true }
+                else { withAnimation(Theme.Animation.gentle) { appeared = true } }
+            }
     }
 }
 private struct RiseModifier: ViewModifier {
     let index: Int
     @State private var appeared = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func body(content: Content) -> some View {
-        content.opacity(appeared ? 1 : 0).offset(y: appeared ? 0 : 18)
+        content.opacity(appeared ? 1 : 0).offset(y: appeared ? 0 : (reduceMotion ? 0 : 18))
             .onAppear {
-                withAnimation(Theme.Animation.gentle.delay(Double(index) * 0.05)) { appeared = true }
+                if reduceMotion { appeared = true }
+                else { withAnimation(Theme.Animation.gentle.delay(Double(index) * 0.05)) { appeared = true } }
             }
     }
 }
 private struct ScaleModifier: ViewModifier {
     @State private var appeared = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func body(content: Content) -> some View {
-        content.opacity(appeared ? 1 : 0).scaleEffect(appeared ? 1 : 0.94)
-            .onAppear { withAnimation(Theme.Animation.lively) { appeared = true } }
+        content.opacity(appeared ? 1 : 0).scaleEffect(appeared ? 1 : (reduceMotion ? 1 : 0.94))
+            .onAppear {
+                if reduceMotion { appeared = true }
+                else { withAnimation(Theme.Animation.lively) { appeared = true } }
+            }
     }
 }
 private struct BlurModifier: ViewModifier {
     @State private var appeared = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func body(content: Content) -> some View {
-        content.opacity(appeared ? 1 : 0).blur(radius: appeared ? 0 : 6)
-            .onAppear { withAnimation(Theme.Animation.gentle) { appeared = true } }
+        content.opacity(appeared ? 1 : 0).blur(radius: appeared ? 0 : (reduceMotion ? 0 : 6))
+            .onAppear {
+                if reduceMotion { appeared = true }
+                else { withAnimation(Theme.Animation.gentle) { appeared = true } }
+            }
     }
 }
 
@@ -172,15 +197,20 @@ struct StaggeredAppearModifier: ViewModifier {
     let start: Double
     let delay: Double
     @State private var appeared = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
         content
             .opacity(appeared ? 1 : 0)
-            .offset(y: appeared ? 0 : 14)
+            .offset(y: appeared ? 0 : (reduceMotion ? 0 : 14))
             .onAppear {
-                withAnimation(
-                    Theme.Animation.gentle.delay(start + Double(index) * delay)
-                ) { appeared = true }
+                if reduceMotion {
+                    appeared = true
+                } else {
+                    withAnimation(
+                        Theme.Animation.gentle.delay(start + Double(index) * delay)
+                    ) { appeared = true }
+                }
             }
     }
 }
@@ -218,19 +248,33 @@ extension View {
 /// plus a subtle shadow lift for a sense of depth.
 struct PressScaleModifier: ViewModifier {
     @State private var isPressed = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
-        content
-            .scaleEffect(isPressed ? 0.97 : 1.0)
-            .animation(Theme.Animation.snappy, value: isPressed)
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { _ in
-                        if !isPressed { Haptics.light() }
-                        isPressed = true
-                    }
-                    .onEnded { _ in isPressed = false }
-            )
+        if reduceMotion {
+            // Reduced motion: keep the haptic, drop the scale animation.
+            content
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { _ in
+                            if !isPressed { Haptics.light() }
+                            isPressed = true
+                        }
+                        .onEnded { _ in isPressed = false }
+                )
+        } else {
+            content
+                .scaleEffect(isPressed ? 0.97 : 1.0)
+                .animation(Theme.Animation.snappy, value: isPressed)
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { _ in
+                            if !isPressed { Haptics.light() }
+                            isPressed = true
+                        }
+                        .onEnded { _ in isPressed = false }
+                )
+        }
     }
 }
 

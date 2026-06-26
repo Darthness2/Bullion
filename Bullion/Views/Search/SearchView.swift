@@ -6,6 +6,7 @@ struct SearchView: View {
     @State private var path = NavigationPath()
     @Namespace private var heroNamespace
     @FocusState private var isFocused: Bool
+    @State private var popular: [Instrument] = []
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -28,13 +29,16 @@ struct SearchView: View {
                 ZStack {
                     Theme.Colors.background.ignoresSafeArea()
                     RadialGradient(
-                        colors: [Theme.Colors.textPrimary.opacity(0.04), .clear],
+                        colors: [Theme.Colors.accent.opacity(0.04), .clear],
                         center: .top, startRadius: 10, endRadius: 320
                     )
                     .ignoresSafeArea()
                 }
             )
-            .onAppear { if vm.results.value == nil { vm.search() } }
+            .onAppear {
+                if vm.results.value == nil { vm.search() }
+                Task { popular = (try? await env.marketProvider.popularStocks()) ?? [] }
+            }
         } else {
             ZStack {
                 Theme.Colors.background.ignoresSafeArea()
@@ -62,6 +66,7 @@ struct SearchView: View {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundColor(Theme.Colors.textSecondary)
                 }
+                .accessibilityLabel("Clear search")
                 .symbolEffect(.bounce, value: vm.query.isEmpty)
                 .transition(.blurReplace)
             }
@@ -71,8 +76,8 @@ struct SearchView: View {
         .clipShape(RoundedRectangle(cornerRadius: Theme.Metrics.cornerRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: Theme.Metrics.cornerRadius, style: .continuous)
-                .stroke(isFocused ? Theme.Colors.textPrimary.opacity(0.45) : Theme.Colors.separator,
-                        lineWidth: Theme.Metrics.hairline)
+                .stroke(isFocused ? Theme.Colors.accent : Theme.Colors.separator,
+                        lineWidth: isFocused ? 1 : Theme.Metrics.hairline)
         )
         .scaleEffect(isFocused ? 1.01 : 1.0)
         .animation(Theme.Animation.interactive, value: isFocused)
@@ -83,57 +88,111 @@ struct SearchView: View {
     @ViewBuilder
     private func resultsList(vm: SearchViewModel) -> some View {
         ScrollView {
-            if !vm.hasSearched {
-                EmptyStateView(
-                    icon: "magnifyingglass",
-                    message: "Search for a stock, ETF, or futures contract by symbol or name."
-                )
-                .padding(.top, 60)
-                .transition(.opacity.combined(with: .scale(scale: 0.98)))
-            } else {
-                switch vm.results {
-                case .idle:
-                    EmptyView()
-                case .loading:
-                    VStack(spacing: Theme.Metrics.spacing) {
-                        ForEach(0..<5, id: \.self) { _ in
-                            SkeletonRow()
-                                .padding(.horizontal, Theme.Metrics.spacingL)
+            VStack(spacing: 0) {
+                if !vm.hasSearched {
+                    popularSection
+                        .padding(.top, Theme.Metrics.spacingL)
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                } else {
+                    switch vm.results {
+                    case .idle:
+                        EmptyView()
+                    case .loading:
+                        VStack(spacing: Theme.Metrics.spacing) {
+                            ForEach(0..<5, id: \.self) { _ in
+                                SkeletonRow()
+                                    .padding(.horizontal, Theme.Metrics.spacingL)
+                            }
                         }
-                    }
-                    .transition(.opacity)
-                case .empty:
-                    EmptyStateView(
-                        icon: "doc.text.magnifyingglass",
-                        message: "No results for \"\(vm.query)\"."
-                    )
-                    .padding(.top, 60)
-                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                case .failed(let msg):
-                    ErrorView(message: msg, retry: { vm.search() })
+                        .transition(.opacity)
+                    case .empty:
+                        VStack(spacing: Theme.Metrics.spacing) {
+                            EmptyStateView(
+                                icon: "doc.text.magnifyingglass",
+                                message: "No results for \"\(vm.query)\"."
+                            )
+                            if !popular.isEmpty {
+                                VStack(alignment: .leading, spacing: Theme.Metrics.spacingS) {
+                                    Text("Try one of these")
+                                        .font(Typography.caption)
+                                        .foregroundColor(Theme.Colors.textSecondary)
+                                    popularChips
+                                }
+                                .padding(.horizontal, Theme.Metrics.spacingL)
+                            }
+                        }
                         .padding(.top, 60)
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                case .loaded(let results):
-                    LazyVStack(spacing: 0) {
-                        ForEach(Array(results.enumerated()), id: \.element.id) { idx, instrument in
-                            NavigationLink(value: instrument) {
-                                InstrumentRow(
-                                    instrument: instrument,
-                                    quote: vm.quotesBySymbol[instrument.symbol]
-                                )
-                                .padding(.horizontal, Theme.Metrics.spacingL)
-                                .padding(.vertical, 6)
+                    case .failed(let msg):
+                        ErrorView(message: msg, retry: { vm.search() })
+                            .padding(.top, 60)
+                            .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    case .loaded(let results):
+                        LazyVStack(spacing: 0) {
+                            ForEach(Array(results.enumerated()), id: \.element.id) { idx, instrument in
+                                NavigationLink(value: instrument) {
+                                    InstrumentRow(
+                                        instrument: instrument,
+                                        quote: vm.quotesBySymbol[instrument.symbol]
+                                    )
+                                    .padding(.horizontal, Theme.Metrics.spacingL)
+                                    .padding(.vertical, 6)
+                                }
+                                .buttonStyle(.plain)
+                                .matchedTransitionSource(id: instrument.id, in: heroNamespace)
+                                .staggeredAppear(index: idx)
+                                Divider()
+                                    .padding(.leading, Theme.Metrics.spacingL)
                             }
-                            .buttonStyle(.plain)
-                            .matchedTransitionSource(id: instrument.id, in: heroNamespace)
-                            .staggeredAppear(index: idx)
-                            Divider()
-                                .padding(.leading, Theme.Metrics.spacingL)
                         }
+                        .transition(.opacity)
                     }
-                    .transition(.opacity)
                 }
             }
+            .padding(.bottom, Theme.Metrics.bottomSafeClearance)
+        }
+    }
+
+    // MARK: - Popular suggestions
+
+    @ViewBuilder private var popularSection: some View {
+        VStack(alignment: .leading, spacing: Theme.Metrics.spacingS) {
+            Text("Popular")
+                .font(Typography.eyebrow)
+                .foregroundColor(Theme.Colors.textSecondary)
+                .padding(.horizontal, Theme.Metrics.spacingL)
+            popularChips
+        }
+    }
+
+    private var popularChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Theme.Metrics.spacingS) {
+                ForEach(popular) { instrument in
+                    NavigationLink(value: instrument) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(instrument.symbol)
+                                .font(Typography.symbolCompact)
+                                .foregroundColor(Theme.Colors.textPrimary)
+                            Text(instrument.name)
+                                .font(Typography.caption2)
+                                .foregroundColor(Theme.Colors.textSecondary)
+                                .lineLimit(1)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Theme.Colors.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Metrics.cornerRadiusSmall, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Theme.Metrics.cornerRadiusSmall, style: .continuous)
+                                .stroke(Theme.Gradients.cardBorderGradient, lineWidth: Theme.Metrics.hairline)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .matchedTransitionSource(id: instrument.id, in: heroNamespace)
+                }
+            }
+            .padding(.horizontal, Theme.Metrics.spacingL)
         }
     }
 }

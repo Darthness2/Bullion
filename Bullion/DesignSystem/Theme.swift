@@ -58,6 +58,9 @@ enum Theme {
         static let shadowRadius: CGFloat = 16
         static let shadowOpacity: Double = 0.10
         static let hairline: CGFloat = 0.5
+        static let bottomSafeClearance: CGFloat = 40
+        static let tabBarClearance: CGFloat = 88
+        static let spacingM: CGFloat = 12
     }
 
     // MARK: - Animation
@@ -175,10 +178,11 @@ private let cNegativeLight          = Color(hex: 0xC0392B)
 private let cSeparatorLight        = Color(hex: 0xD8D8DC)
 private let cShadowLight           = Color(hex: 0x1C1C1E)
 
-// Dark — pure black, OLED-friendly, white ink
+// Dark — pure black, OLED-friendly, white ink. Elevated surface lifted for
+// visible hierarchy against the flat surface (per WCAG contrast guidance).
 private let cBackgroundDark        = Color(hex: 0x000000)
 private let cSurfaceDark           = Color(hex: 0x0E0E0F)
-private let cSurfaceElevatedDark   = Color(hex: 0x161617)
+private let cSurfaceElevatedDark   = Color(hex: 0x1C1C1E)
 private let cInkDark              = Color(hex: 0xF5F5F7)
 private let cInkSubtleDark         = Color(hex: 0xC7C7CC)
 private let cTextPrimaryDark       = Color(hex: 0xF5F5F7)

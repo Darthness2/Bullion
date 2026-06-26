@@ -23,12 +23,13 @@ struct SegmentedPill<Option: Identifiable & Hashable>: View where Option: Segmen
                     onChange?(option)
                 } label: {
                     Text(option.pillTitle)
-                        .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                        .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
                         .foregroundColor(isSelected
                                          ? Theme.Colors.textOnPrimary
                                          : Theme.Colors.textSecondary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .frame(minHeight: 36) // ≥44pt tap target with the row padding
                         .background(
                             ZStack {
                                 if isSelected {
@@ -46,6 +47,8 @@ struct SegmentedPill<Option: Identifiable & Hashable>: View where Option: Segmen
                         .contentTransition(.symbolEffect(.replace))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(option.pillTitle)
+                .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
             }
         }
         .animation(Theme.Animation.interactive, value: selection)

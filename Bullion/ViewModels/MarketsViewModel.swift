@@ -10,9 +10,15 @@ final class MarketsViewModel {
         var pillTitle: String { rawValue }
     }
 
-    var segment: Segment = .stocks
+    var segment: Segment = .stocks {
+        didSet {
+            guard segment != oldValue else { return }
+            Task { await loadActive() }
+        }
+    }
     var headlineQuotes: LoadState<[Quote]> = .idle
     var headlineInstruments: [Instrument] = []
+    var headlineSparklines: [String: [Double]] = [:]
     var activeQuotes: LoadState<[Quote]> = .idle
     var activeInstruments: [Instrument] = []
     var lastUpdated: Date?
@@ -29,9 +35,26 @@ final class MarketsViewModel {
     }
 
     @MainActor
+    func refresh() async {
+        // Cancel any in-flight load so pull-to-refresh always re-runs,
+        // never silently no-ops because an auto-refresh tick landed first.
+        refreshTask?.cancel()
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.isRefreshing = true
+            await self.load()
+            self.isRefreshing = false
+        }
+        refreshTask = task
+        await task.value
+    }
+
+    @MainActor
     func load() async {
-        await loadHeadlines()
-        await loadActive()
+        // Headlines and active are independent — run them concurrently.
+        async let h: Void = loadHeadlines()
+        async let a: Void = loadActive()
+        _ = await (h, a)
     }
 
     @MainActor
@@ -57,7 +80,32 @@ final class MarketsViewModel {
                 quotes.append(contentsOf: fetched)
                 if let cache = quoteCache { await cache.setAll(fetched) }
             }
+            // Fetch real 1D candle closes for sparklines (concurrent, cached-friendly).
+            let sparklineTask = Task { @MainActor [weak self] in
+                guard let self else { return [:] as [String: [Double]] }
+                var sparks: [String: [Double]] = [:]
+                await withTaskGroup(of: (String, [Double]).self) { group in
+                    for sym in symbols {
+                        group.addTask { [weak self] in
+                            guard let self else { return (sym, []) }
+                            if let cached = await self.quoteCache?.getSparkline(sym) {
+                                return (sym, cached)
+                            }
+                            if let candles = try? await self.provider.candles(sym, range: .oneD),
+                               !candles.isEmpty {
+                                let closes = candles.map(\.c)
+                                await self.quoteCache?.setSparkline(sym, closes: closes)
+                                return (sym, closes)
+                            }
+                            return (sym, [])
+                        }
+                    }
+                    for await (sym, closes) in group { sparks[sym] = closes }
+                }
+                return sparks
+            }
             headlineQuotes = quotes.isEmpty ? .empty : .loaded(quotes)
+            headlineSparklines = await sparklineTask.value
             lastUpdated = Date()
         } catch {
             headlineQuotes = .failed(error.localizedDescription)
@@ -68,7 +116,14 @@ final class MarketsViewModel {
     func loadActive() async {
         activeQuotes = .loading
         do {
-            let symbols = provider.defaultActiveSymbols()
+            // Segment-aware curated lists with correct exchanges.
+            let instruments: [Instrument]
+            switch segment {
+            case .stocks:  instruments = provider.popularStocks()
+            case .futures: instruments = provider.popularFutures()
+            }
+            activeInstruments = instruments
+            let symbols = instruments.map(\.symbol)
             var quotes: [Quote] = []
             var toFetch: [String] = []
             if let cache = quoteCache {
@@ -84,21 +139,13 @@ final class MarketsViewModel {
                 quotes.append(contentsOf: fetched)
                 if let cache = quoteCache { await cache.setAll(fetched) }
             }
-            activeInstruments = symbols.map { sym in
-                Instrument(symbol: sym, name: displayNameFor(sym), type: .stock, exchange: "NASDAQ")
-            }
-            activeQuotes = quotes.isEmpty ? .empty : .loaded(quotes)
+            // Preserve instrument order in the displayed list.
+            let bySymbol = Dictionary(uniqueKeysWithValues: quotes.map { ($0.symbol, $0) })
+            let ordered = symbols.compactMap { bySymbol[$0] }
+            activeQuotes = ordered.isEmpty ? .empty : .loaded(ordered)
         } catch {
             activeQuotes = .failed(error.localizedDescription)
         }
-    }
-
-    @MainActor
-    func refresh() async {
-        guard !isRefreshing else { return }
-        isRefreshing = true
-        await load()
-        isRefreshing = false
     }
 
     // MARK: - Auto-refresh timer
@@ -119,19 +166,5 @@ final class MarketsViewModel {
     func stopAutoRefresh() {
         timerTask?.cancel()
         timerTask = nil
-    }
-
-    private func displayNameFor(_ symbol: String) -> String {
-        switch symbol {
-        case "AAPL":  return "Apple Inc."
-        case "MSFT":  return "Microsoft Corporation"
-        case "NVDA":  return "NVIDIA Corporation"
-        case "TSLA":  return "Tesla, Inc."
-        case "AMZN":  return "Amazon.com, Inc."
-        case "META":  return "Meta Platforms, Inc."
-        case "AMD":   return "Advanced Micro Devices"
-        case "GOOGL": return "Alphabet Inc."
-        default:      return symbol
-        }
     }
 }

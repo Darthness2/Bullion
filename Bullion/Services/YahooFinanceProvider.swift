@@ -162,8 +162,44 @@ final class YahooFinanceProvider: MarketDataProvider, @unchecked Sendable {
         ]
     }
 
+    /// Curated popular stocks with correct exchanges (not "Most Active" —
+    /// Yahoo's free API doesn't expose true activity, so we label this
+    /// honestly as a curated list).
     func defaultActiveSymbols() -> [String] {
-        ["AAPL", "NVDA", "TSLA", "AMD", "AMZN", "META", "MSFT", "GOOGL"]
+        popularStocks().map(\.symbol)
+    }
+
+    /// Curated popular stocks as full Instruments with correct exchanges.
+    func popularStocks() -> [Instrument] {
+        [
+            Instrument(symbol: "AAPL",  name: "Apple Inc.",              type: .stock, exchange: "NASDAQ"),
+            Instrument(symbol: "NVDA",  name: "NVIDIA Corporation",      type: .stock, exchange: "NASDAQ"),
+            Instrument(symbol: "TSLA",  name: "Tesla, Inc.",             type: .stock, exchange: "NASDAQ"),
+            Instrument(symbol: "AMD",   name: "Advanced Micro Devices",  type: .stock, exchange: "NASDAQ"),
+            Instrument(symbol: "AMZN",  name: "Amazon.com, Inc.",        type: .stock, exchange: "NASDAQ"),
+            Instrument(symbol: "META",  name: "Meta Platforms, Inc.",    type: .stock, exchange: "NASDAQ"),
+            Instrument(symbol: "MSFT",  name: "Microsoft Corporation",   type: .stock, exchange: "NASDAQ"),
+            Instrument(symbol: "GOOGL", name: "Alphabet Inc.",           type: .stock, exchange: "NASDAQ"),
+        ]
+    }
+
+    /// Curated popular futures for the Futures segment.
+    func popularFutures() -> [Instrument] {
+        [
+            Instrument(symbol: "ES=F", name: "E-Mini S&P 500 Futures",    type: .future, exchange: "CME"),
+            Instrument(symbol: "NQ=F", name: "E-Mini Nasdaq 100 Futures", type: .future, exchange: "CME"),
+            Instrument(symbol: "CL=F", name: "Crude Oil WTI Futures",     type: .future, exchange: "NYMEX"),
+            Instrument(symbol: "GC=F", name: "Gold Futures",              type: .future, exchange: "COMEX"),
+            Instrument(symbol: "YI=F", name: "Silver Futures",            type: .future, exchange: "CBOT"),
+            Instrument(symbol: "ZW=F", name: "Wheat Futures",             type: .future, exchange: "CBOT"),
+            Instrument(symbol: "ZC=F", name: "Corn Futures",              type: .future, exchange: "CBOT"),
+            Instrument(symbol: "HG=F", name: "Copper Futures",            type: .future, exchange: "COMEX"),
+        ]
+    }
+
+    /// Curated popular futures for the Futures segment.
+    var futuresSymbols: [String] {
+        popularFutures().map(\.symbol)
     }
 
     // MARK: - Private helpers

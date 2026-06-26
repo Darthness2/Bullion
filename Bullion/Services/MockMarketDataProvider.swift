@@ -187,6 +187,14 @@ final class MockMarketDataProvider: MarketDataProvider, @unchecked Sendable {
         ["AAPL", "NVDA", "TSLA", "AMD", "AMZN", "META", "MSFT", "GOOGL"]
     }
 
+    func popularStocks() -> [Instrument] {
+        defaultActiveSymbols().compactMap { sym in instruments.first(where: { $0.symbol == sym }) }
+    }
+
+    func popularFutures() -> [Instrument] {
+        ["ES", "NQ", "CL", "GC"].compactMap { sym in instruments.first(where: { $0.symbol == sym }) }
+    }
+
     // MARK: - Deterministic pseudo-randomness
 
     private func deterministicJitter(symbol: String, amplitude: Double) -> Double {

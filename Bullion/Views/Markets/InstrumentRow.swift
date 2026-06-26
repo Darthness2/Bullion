@@ -27,11 +27,25 @@ struct InstrumentRow: View {
 
             Spacer()
 
-            // Right: price + change
+            // Right: price + percent change (plain colored text, no pill)
             VStack(alignment: .trailing, spacing: 3) {
                 PriceText(value: quote?.last, font: Typography.price)
                     .priceFlash(quote?.last)
-                ChangeBadge(change: quote?.change, changePercent: quote?.changePercent, compact: true)
+                if let pct = quote?.changePercent {
+                    HStack(spacing: 2) {
+                        Image(systemName: pct >= 0 ? "arrowtriangle.up.fill" : "arrowtriangle.down.fill")
+                            .font(.system(size: 6))
+                        Text(NumberFormatting.signedPercent(pct))
+                    }
+                    .font(Typography.caption)
+                    .monospacedDigit()
+                    .foregroundColor(pct >= 0 ? Theme.Colors.positive : Theme.Colors.negative)
+                    .contentTransition(.numericText())
+                } else {
+                    Text("—")
+                        .font(Typography.caption)
+                        .foregroundColor(Theme.Colors.textSecondary)
+                }
             }
         }
         .padding(.vertical, 6)

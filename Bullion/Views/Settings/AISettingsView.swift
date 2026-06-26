@@ -6,6 +6,7 @@ struct AISettingsView: View {
     @State private var showOpenAIKey = false
     @State private var testResult: TestResult?
     @State private var confirmingClear = false
+    @State private var isTesting = false
 
     enum TestResult: Equatable {
         case success(String)
@@ -153,9 +154,14 @@ struct AISettingsView: View {
                     Image(systemName: "stethoscope")
                         .symbolEffect(.bounce, value: testResult != nil)
                     Text("Test Connection")
+                    if isTesting {
+                        Spacer()
+                        ProgressView()
+                            .tint(Theme.Colors.accent)
+                    }
                 }
             }
-            .disabled(!store.isConfigured)
+            .disabled(!store.isConfigured || isTesting)
 
             if let testResult {
                 switch testResult {
@@ -219,6 +225,9 @@ struct AISettingsView: View {
     // MARK: - Test logic
 
     private func runTest() async {
+        guard !isTesting else { return }
+        isTesting = true
+        defer { isTesting = false }
         do {
             let provider = store.makeProvider()
             let context = MarketContext(

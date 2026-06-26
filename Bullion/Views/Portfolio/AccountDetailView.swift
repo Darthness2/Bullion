@@ -33,7 +33,8 @@ struct AccountDetailView: View {
         .navigationDestination(for: Holding.self) { holding in
             HoldingDetailView(holding: holding, account: account)
         }
-        .task { await vm.refresh() }
+        .refreshable { await vm.syncAccount(account.id) }
+        .task { await vm.syncAccount(account.id) }
     }
 
     private var headerCard: some View {

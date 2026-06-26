@@ -6,6 +6,7 @@ struct InstrumentDetailView: View {
     @Environment(WatchlistViewModel.self) private var watchlistVM
     @State private var vm: InstrumentDetailViewModel?
     @Namespace private var rangeNamespace
+    @Namespace private var heroNamespace
 
     var body: some View {
         ScrollView {
@@ -13,18 +14,17 @@ struct InstrumentDetailView: View {
                 headerSection
                 chartSection
                 statsSection
-                aboutSection
-                newsRow
+                newsSection
                 aiResearchRow
             }
             .padding(.horizontal, Theme.Metrics.spacingL)
-            .padding(.bottom, 40)
+            .padding(.bottom, Theme.Metrics.bottomSafeClearance)
         }
         .background(
             ZStack {
                 Theme.Colors.background.ignoresSafeArea()
                 RadialGradient(
-                    colors: [Theme.Colors.textPrimary.opacity(0.03), .clear],
+                    colors: [Theme.Colors.accent.opacity(0.04), .clear],
                     center: .top, startRadius: 10, endRadius: 350
                 )
                 .ignoresSafeArea()
@@ -36,7 +36,10 @@ struct InstrumentDetailView: View {
         .navigationDestination(for: NewsItem.self) { item in
             NewsDetailView(item: item)
         }
-        .task {
+        .refreshable {
+            if let vm { await vm.load() }
+        }
+        .task(id: instrument.id) {
             if vm == nil {
                 vm = InstrumentDetailViewModel(
                     instrument: instrument,
@@ -48,62 +51,82 @@ struct InstrumentDetailView: View {
         }
     }
 
-    // MARK: - Header
+    // MARK: - Header (price hero — also the hero-zoom target)
 
     @ViewBuilder private var headerSection: some View {
-        ThemedCard {
-            VStack(alignment: .leading, spacing: Theme.Metrics.spacingS) {
-                HStack(spacing: 8) {
-                    Text(instrument.name)
-                        .font(Typography.subheadline)
-                        .foregroundColor(Theme.Colors.textSecondary)
-                    Spacer()
-                    InstrumentTypeBadge(type: instrument.type)
-                }
-                if let exchange = instrument.exchange {
-                    Text(exchange)
-                        .font(Typography.caption2)
-                        .foregroundColor(Theme.Colors.textSecondary)
-                }
-                if let q = vm?.quote.value {
-                    PriceText(value: q.last, font: Typography.priceLarge)
-                        .priceFlash(q.last)
-                    ChangeBadge(change: q.change, changePercent: q.changePercent)
-                    HStack(spacing: 4) {
-                        Image(systemName: "clock")
-                            .font(Typography.caption2)
-                        Text("As of \(q.timestamp.asOfTimeText)")
-                            .font(Typography.caption2)
-                        if q.isDelayed {
-                            Text("· Delayed")
-                                .font(Typography.caption2)
-                                .foregroundColor(Theme.Colors.textSecondary)
-                        }
-                    }
+        VStack(alignment: .leading, spacing: Theme.Metrics.spacingS) {
+            HStack(spacing: 8) {
+                Text(instrument.name)
+                    .font(Typography.subheadline)
                     .foregroundColor(Theme.Colors.textSecondary)
-                } else if vm?.quote.isLoading == true {
-                    GlowLoadingView()
+                    .lineLimit(1)
+                Spacer()
+                InstrumentTypeBadge(type: instrument.type)
+            }
+            if let q = vm?.quote.value {
+                PriceText(value: q.last, font: Typography.priceLarge)
+                    .priceFlash(q.last)
+                ChangeBadge(change: q.change, changePercent: q.changePercent)
+                HStack(spacing: 4) {
+                    Image(systemName: "clock")
+                        .font(Typography.caption2)
+                    Text(q.timestamp.asOfTimeText)
+                        .font(Typography.caption2)
+                    if q.isDelayed {
+                        Text("· Delayed")
+                            .font(Typography.caption2)
+                            .foregroundColor(Theme.Colors.negative)
+                    }
                 }
+                .foregroundColor(Theme.Colors.textSecondary)
+            } else if vm?.quote.isLoading == true {
+                GlowLoadingView()
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, Theme.Metrics.spacing)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Theme.Metrics.spacingL)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.Metrics.cornerRadiusLarge, style: .continuous)
+                .fill(Theme.Colors.surfaceElevated)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Metrics.cornerRadiusLarge, style: .continuous)
+                .stroke(Theme.Gradients.cardBorderGradient, lineWidth: Theme.Metrics.hairline)
+        )
+        .matchedTransitionSource(id: instrument.id, in: heroNamespace)
         .appearAnimation(.blur)
     }
 
-    // MARK: - Chart
+    // MARK: - Chart (the hero — no card chrome, range pills overlaid)
 
     @ViewBuilder private var chartSection: some View {
-        ThemedCard {
-            VStack(alignment: .leading, spacing: Theme.Metrics.spacing) {
-                SectionHeader(title: "Price")
-                rangePicker
+        VStack(spacing: Theme.Metrics.spacingS) {
+            if vm?.candles.isLoading == true {
+                // Skeleton placeholder while candles load — keeps the page
+                // structure visible instead of an empty gap.
+                RoundedRectangle(cornerRadius: Theme.Metrics.cornerRadius, style: .continuous)
+                    .fill(Theme.Colors.surface)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Metrics.cornerRadius, style: .continuous)
+                            .stroke(Theme.Gradients.cardBorderGradient, lineWidth: Theme.Metrics.hairline)
+                    )
+                    .frame(height: 240)
+                    .redacted(reason: .placeholder)
+                    .shimmer()
+                    .appearAnimation(.blur, index: 1)
+            } else {
                 PriceChartView(
                     candles: vm?.candles.value ?? [],
                     previousClose: vm?.quote.value?.previousClose
                 )
                 .frame(height: 240)
+                .appearAnimation(.blur, index: 1)
             }
+
+            rangePicker
         }
-        .appearAnimation(.blur, index: 1)
     }
 
     private var rangePicker: some View {
@@ -117,7 +140,7 @@ struct InstrumentDetailView: View {
         )
     }
 
-    // MARK: - Stats
+    // MARK: - Stats (2-column grid)
 
     @ViewBuilder private var statsSection: some View {
         if let stats = vm?.stats.value {
@@ -127,6 +150,7 @@ struct InstrumentDetailView: View {
                     statsGrid(stats)
                 }
             }
+            .appearAnimation(.rise, index: 2)
         }
     }
 
@@ -158,21 +182,17 @@ struct InstrumentDetailView: View {
             ("Continuous", stats.continuous.map { $0 ? "Yes" : "No" }),
         ]
 
-        return VStack(spacing: 0) {
+        let columns = [GridItem(.flexible(), alignment: .leading),
+                       GridItem(.flexible(), alignment: .leading)]
+        return LazyVGrid(columns: columns, spacing: 0) {
             ForEach(Array(common.enumerated()), id: \.0) { idx, item in
                 StatCell(label: item.0, value: item.1)
                     .staggeredAppear(index: idx)
             }
-            if instrument.type == .future || stats.hasFuturesFields {
-                ForEach(Array(futures.enumerated()), id: \.0) { idx, item in
-                    StatCell(label: item.0, value: item.1)
-                        .staggeredAppear(index: common.count + idx)
-                }
-            } else {
-                ForEach(Array(equities.enumerated()), id: \.0) { idx, item in
-                    StatCell(label: item.0, value: item.1)
-                        .staggeredAppear(index: common.count + idx)
-                }
+            let extra = (instrument.type == .future || stats.hasFuturesFields) ? futures : equities
+            ForEach(Array(extra.enumerated()), id: \.0) { idx, item in
+                StatCell(label: item.0, value: item.1)
+                    .staggeredAppear(index: common.count + idx)
             }
         }
     }
@@ -187,64 +207,73 @@ struct InstrumentDetailView: View {
         return "\(NumberFormatting.price(l)) – \(NumberFormatting.price(h))"
     }
 
-    // MARK: - About
+    // MARK: - News (inline top 3 + "See all")
 
-    @ViewBuilder private var aboutSection: some View {
-        ThemedCard {
-            VStack(alignment: .leading, spacing: Theme.Metrics.spacingS) {
-                SectionHeader(title: "About")
-                Text(aboutText)
-                    .font(Typography.body)
-                    .foregroundColor(Theme.Colors.textSecondary)
-            }
-        }
-    }
-
-    private var aboutText: String {
-        let stats = vm?.stats.value
-        var parts: [String] = []
-        if let sector = stats?.sector, !sector.isEmpty {
-            parts.append("Sector: \(sector)")
-        }
-        if let industry = stats?.industry, !industry.isEmpty {
-            parts.append("Industry: \(industry)")
-        }
-        switch instrument.type {
-        case .future:
-            parts.append("\(instrument.name) is a futures contract listed on \(instrument.exchange ?? "the exchange"). " +
-                         "Futures are derivative instruments obligating the buyer to purchase (or seller to sell) " +
-                         "the underlying asset at a predetermined future date and price.")
-        default:
-            parts.append("\(instrument.name) is listed on \(instrument.exchange ?? "its exchange"). " +
-                         "This overview is for informational purposes only and is not investment advice.")
-        }
-        return parts.joined(separator: "\n\n")
-    }
-
-    // MARK: - News (drill-in)
-
-    @ViewBuilder private var newsRow: some View {
-        NavigationLink {
-            NewsListView(symbol: instrument.symbol)
-        } label: {
-            ThemedCard {
-                HStack {
-                    SectionHeader(title: "News")
-                    Spacer()
-                    if let news = vm?.news.value, !news.isEmpty {
-                        Text("\(news.count)")
-                            .font(Typography.caption)
-                            .foregroundColor(Theme.Colors.textSecondary)
+    @ViewBuilder private var newsSection: some View {
+        VStack(alignment: .leading, spacing: Theme.Metrics.spacing) {
+            HStack {
+                SectionHeader(title: "News")
+                Spacer()
+                if let news = vm?.news.value, !news.isEmpty {
+                    NavigationLink {
+                        NewsListView(symbol: instrument.symbol)
+                    } label: {
+                        Text("See all")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(Theme.Colors.accent)
+                            .textCase(.uppercase)
                     }
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .semibold))
+                    .buttonStyle(.plain)
+                }
+            }
+            if let news = vm?.news.value, !news.isEmpty {
+                ThemedCard {
+                    VStack(alignment: .leading, spacing: Theme.Metrics.spacing) {
+                        ForEach(Array(news.prefix(3).enumerated()), id: \.element.id) { idx, item in
+                            NavigationLink(value: item) { newsRow(item) }
+                                .buttonStyle(.plain)
+                                .staggeredAppear(index: idx)
+                            if item.id != news.prefix(3).last?.id {
+                                Divider().background(Theme.Colors.separator.opacity(0.5))
+                            }
+                        }
+                    }
+                }
+            } else if vm?.news.isLoading == true {
+                SkeletonRow()
+            } else {
+                ThemedCard {
+                    Text("No recent news for \(instrument.symbol).")
+                        .font(Typography.caption)
                         .foregroundColor(Theme.Colors.textSecondary)
                 }
             }
-            .pressScale()
         }
-        .buttonStyle(.plain)
-        .appearAnimation(.blur, index: 2)
+        .appearAnimation(.rise, index: 3)
+    }
+
+    private func newsRow(_ item: NewsItem) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(item.headline)
+                .font(Typography.subheadline)
+                .foregroundColor(Theme.Colors.textPrimary)
+                .lineLimit(2)
+            HStack(spacing: 6) {
+                Text(item.source)
+                    .font(Typography.caption)
+                    .foregroundColor(Theme.Colors.textPrimary)
+                Text("·")
+                    .font(Typography.caption)
+                    .foregroundColor(Theme.Colors.textSecondary)
+                Text(item.publishedAt.relativeText)
+                    .font(Typography.caption)
+                    .foregroundColor(Theme.Colors.textSecondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(item.headline), \(item.source), \(item.publishedAt.relativeText)")
     }
 
     // MARK: - AI Research (drill-in)
@@ -259,7 +288,7 @@ struct InstrumentDetailView: View {
                     Spacer()
                     Image(systemName: "sparkles")
                         .font(.system(size: 15))
-                        .foregroundColor(Theme.Colors.textSecondary)
+                        .foregroundColor(Theme.Colors.accent)
                     Image(systemName: "chevron.right")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(Theme.Colors.textSecondary)
@@ -268,7 +297,7 @@ struct InstrumentDetailView: View {
             .pressScale()
         }
         .buttonStyle(.plain)
-        .appearAnimation(.blur, index: 3)
+        .appearAnimation(.rise, index: 4)
     }
 
     // MARK: - Toolbar
@@ -278,15 +307,15 @@ struct InstrumentDetailView: View {
         ToolbarItem(placement: .topBarTrailing) {
             let isWatched = vm?.isWatched == true
             Button {
-                Haptics.light()
                 vm?.toggleWatchlist()
             } label: {
                 Image(systemName: isWatched ? "star.fill" : "star")
-                    .foregroundColor(isWatched ? Theme.Colors.positive : Theme.Colors.textPrimary)
+                    .foregroundColor(isWatched ? Theme.Colors.accent : Theme.Colors.textPrimary)
                     .symbolEffect(.bounce, value: isWatched)
                     .contentTransition(.symbolEffect(.replace))
                     .animation(Theme.Animation.snappy, value: isWatched)
             }
+            .accessibilityLabel(isWatched ? "Remove from watchlist" : "Add to watchlist")
             .sensoryFeedback(.impact(weight: .light), trigger: isWatched)
         }
     }

@@ -63,4 +63,32 @@ struct QuoteMathTests {
         #expect(h.unrealizedPL == nil)
         #expect(h.unrealizedPLPercent == nil)
     }
+
+    // MARK: - Day-change enrichment (Yahoo quote → holding dayChange)
+
+    @Test("Enrichment: day change = last - previousClose")
+    func enrichmentDayChange() {
+        // A holding with no day change from the backend…
+        var h = Holding(symbol: "AAPL", name: "Apple", quantity: 100, avgCost: 150,
+                        marketValue: 16_000, dayChange: nil, dayChangePercent: nil)
+        // …enriched from a Yahoo quote where last=165, prevClose=160.
+        let q = makeQuote(last: 165, prevClose: 160)
+        let change = q.last - (q.previousClose ?? 0)
+        h.dayChange = change
+        h.dayChangePercent = q.previousClose == 0 ? nil : (change / q.previousClose! * 100)
+        #expect(h.dayChange == 5)
+        #expect(h.dayChangePercent == 3.125)  // 5/160*100
+    }
+
+    @Test("Enrichment: negative day change")
+    func enrichmentNegativeDayChange() {
+        var h = Holding(symbol: "TSLA", name: "Tesla", quantity: 60, avgCost: 220,
+                        marketValue: 14_910, dayChange: nil, dayChangePercent: nil)
+        let q = makeQuote(last: 248.5, prevClose: 252.0)
+        let change = q.last - (q.previousClose ?? 0)
+        h.dayChange = change
+        h.dayChangePercent = (change / q.previousClose! * 100)
+        #expect(h.dayChange == -3.5)
+        #expect(h.dayChangePercent! < 0)
+    }
 }

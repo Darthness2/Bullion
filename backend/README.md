@@ -50,26 +50,57 @@ markers show where to wire JWT/session/OAuth tied to real user identity.
 
 ## Deploy
 
-The repo includes a `render.yaml` Blueprint for one-click deployment to Render
-(free tier; sleeps when idle, wakes on first request with a ~10-15s cold start).
+The backend ships in two forms:
+
+### Option A — Vercel serverless (recommended, scales to zero)
+
+The `api/` folder contains Vercel serverless functions (one file per route).
+No always-on process — each request spins up briefly and dies, billed per
+invocation (free tier covers thousands of calls/day).
+
+1. Install the Vercel CLI: `npm i -g vercel`
+2. From the `backend/` folder: `vercel` (link the project; accept defaults)
+3. Set env vars in the Vercel dashboard (Settings → Environment Variables),
+   or via CLI:
+   ```
+   vercel env add SNAPTRADE_CLIENT_ID
+   vercel env add SNAPTRADE_CONSUMER_KEY
+   vercel env add SNAPTRADE_USER_ID
+   vercel env add SNAPTRADE_REDIRECT_URI   # ledger://snaptrade-callback
+   vercel env add BULLION_API_TOKEN        # a long random string; set for auth
+   ```
+   (SNAPTRADE_USER_SECRET is set AFTER the first register-user call — see below.)
+4. `vercel --prod` to deploy. Copy the URL (e.g.
+   `https://bullion-backend.vercel.app`).
+5. In the iOS app, set `BULLION_BACKEND_URL` (xcconfig / Build Setting) to
+   that URL. For local dev it still defaults to `http://localhost:8787`.
+
+**One-time SnapTrade user registration (serverless is stateless):**
+After deploying, run `curl -X POST https://<your-url>/snaptrade/register-user`
+once. The response includes `userSecret`. Paste that as
+`vercel env add SNAPTRADE_USER_SECRET`, redeploy (`vercel --prod`), and the
+register endpoint short-circuits on all future calls. Until you do this, the
+data endpoints (accounts/holdings/transactions) return 400.
+
+### Option B — Render (always-on, uses the classic Express server)
+
+A `render.yaml` Blueprint is included for one-click Render deployment (free
+tier; sleeps when idle, wakes on first request with a ~10–15s cold start).
+The Express `server.js` + `routes/` persist the userSecret to a gitignored
+file so no second deploy is needed after registration.
 
 1. Push this repo to GitHub.
-2. In Render, **New → Blueprint** → select the repo. Render reads `render.yaml`.
-3. In the service's **Environment** tab, set the secret env vars (do NOT commit
-   real values to the repo):
-   - `SNAPTRADE_CLIENT_ID`, `SNAPTRADE_CONSUMER_KEY`, `SNAPTRADE_USER_ID`,
-     `SNAPTRADE_USER_SECRET`
-   - `CORS_ORIGIN` (the iOS app isn't browser-based, so you can set this to `*`
-     or leave it unset for now)
-4. Deploy. Note the service URL (e.g. `https://bullion-backend.onrender.com`).
-5. In the iOS app, set `BULLION_BACKEND_URL` (via xcconfig or the `Info.plist`
-   build setting injected by `Secrets.swift`) to that URL. For local dev it
-   still defaults to `http://localhost:8787`.
+2. In Render: **New → Blueprint** → select the repo. Render reads
+   `render.yaml`.
+3. Set the secret env vars in the dashboard.
+4. Deploy. Use the service URL as `BULLION_BACKEND_URL`.
 
-Equivalent hosts work too: Railway (`railway up`), Fly.io (`fly deploy`), or any
-Node host. The server is a plain Express app with no special requirements.
+Equivalent hosts work too: Railway (`railway up`), Fly.io (`fly deploy`).
 
 ## Local dev (when you don't want a cloud host)
+
+The classic Express server (`server.js` + `routes/`) runs locally and persists
+the userSecret to a gitignored file:
 
 ```bash
 cd backend

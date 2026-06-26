@@ -25,8 +25,10 @@ struct Holding: Identifiable, Codable, Hashable, Sendable {
     let quantity: Double
     let avgCost: Double?
     let marketValue: Double
-    let dayChange: Double?
-    let dayChangePercent: Double?
+    /// Mutable so PortfolioViewModel can enrich day change from live Yahoo
+    /// quotes when the backend sends null (it always does today).
+    var dayChange: Double?
+    var dayChangePercent: Double?
 
     var unrealizedPL: Double? {
         avgCost.map { marketValue - $0 * quantity }

@@ -76,8 +76,11 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: "Internal server error" });
 });
 
-app.listen(port, () => {
-  console.log(`Bullion backend listening on http://localhost:${port}`);
+// Bind to '::' so the server accepts both IPv6 (::1) and IPv4 (127.0.0.1)
+// connections. Node defaults to IPv4-only, which breaks `localhost` on macOS
+// where it resolves to ::1 first — URLSession then gets ECONNREFUSED.
+app.listen(port, "::", () => {
+  console.log(`Bullion backend listening on http://localhost:${port} (IPv4 + IPv6)`);
   if (!process.env.SNAPTRADE_CLIENT_ID || !process.env.SNAPTRADE_CONSUMER_KEY) {
     console.warn(
       "WARNING: SNAPTRADE_CLIENT_ID or SNAPTRADE_CONSUMER_KEY not set. SnapTrade routes will not work."

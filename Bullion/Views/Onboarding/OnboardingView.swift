@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// First-launch onboarding. A paged TabView with 4 intro screens; the last
-/// offers an optional "Connect brokerage" step. "Get started" sets the
-/// `hasOnboarded` UserDefaults flag and swaps to RootView.
+/// First-launch onboarding. 3 pages: Welcome → Privacy & Control → Connect
+/// (optional). "Get started" sets the `hasOnboarded` flag and swaps to
+/// RootView. "Connect a brokerage first" is a secondary text link.
 struct OnboardingView: View {
     @Environment(AppNav.self) private var appNav
     @State private var page = 0
@@ -11,22 +11,17 @@ struct OnboardingView: View {
         OnboardingPage(
             icon: "chart.line.uptrend",
             title: "Welcome to Bullion",
-            body: "A minimalist companion for tracking stocks, ETFs, and futures. Browse markets, build a watchlist, and stay informed — no noise."
+            body: "A minimalist companion for tracking stocks, ETFs, and futures. Browse markets, build a watchlist, and stay informed — no noise. Market data may be delayed by 15 minutes."
         ),
         OnboardingPage(
             icon: "hand.raised",
-            title: "Privacy first",
+            title: "Privacy & control",
             body: "Your watchlist and preferences live on your device. When you link a brokerage, SnapTrade handles the secure connection — Bullion never sees your credentials."
-        ),
-        OnboardingPage(
-            icon: "star",
-            title: "Track what matters",
-            body: "Tap the star on any instrument to add it to your Watchlist. Get quotes, charts, key stats, and optional AI research for anything you follow."
         ),
         OnboardingPage(
             icon: "briefcase",
             title: "Connect your portfolio",
-            body: "Link a brokerage to see live holdings, balances, and performance across all your accounts. Optional — you can do this later from the Portfolio tab."
+            body: "Link a brokerage to see live holdings, balances, and performance. Optional — you can do this anytime from the Portfolio tab."
         ),
     ]
 
@@ -34,7 +29,7 @@ struct OnboardingView: View {
         ZStack {
             Theme.Colors.background.ignoresSafeArea()
             RadialGradient(
-                colors: [Theme.Colors.textPrimary.opacity(0.05), .clear],
+                colors: [Theme.Colors.accent.opacity(0.06), .clear],
                 center: .top, startRadius: 10, endRadius: 400
             )
             .ignoresSafeArea()
@@ -52,71 +47,63 @@ struct OnboardingView: View {
                 VStack(spacing: Theme.Metrics.spacing) {
                     pageDots
                     primaryButton
+                    if page == pages.count - 1 {
+                        Button {
+                            Haptics.selection()
+                            appNav.selectedTab = .portfolio
+                            finishOnboarding()
+                        } label: {
+                            Text("Connect a brokerage first →")
+                                .font(Typography.subheadline)
+                                .foregroundColor(Theme.Colors.accent)
+                        }
+                        .buttonStyle(.plain)
+                        .transition(.opacity)
+                    }
                 }
                 .padding(.horizontal, Theme.Metrics.spacingL)
                 .padding(.bottom, Theme.Metrics.spacingXL)
+                .animation(Theme.Animation.interactive, value: page)
             }
         }
         .animation(Theme.Animation.interactive, value: page)
     }
 
-    private func pageView(_ page: OnboardingPage, isLast: Bool) -> some View {
+    private func pageView(_ p: OnboardingPage, isLast: Bool) -> some View {
         VStack(spacing: Theme.Metrics.spacingL) {
             Spacer()
-            if page.icon == "chart.line.uptrend" {
-                // First page — show the app icon
+            if p.icon == "chart.line.uptrend" {
                 Image("BrandIcon")
                     .resizable()
                     .scaledToFit()
                     .frame(width: 96, height: 96)
                     .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                     .shadow(color: Theme.Colors.accent.opacity(0.3), radius: 20, x: 0, y: 8)
-                    .symbolEffect(.bounce, value: self.page)
+                    .symbolEffect(.bounce, value: page == 0)
             } else {
-                Image(systemName: page.icon)
+                Image(systemName: p.icon)
                     .font(.system(size: 64, weight: .light))
                     .foregroundColor(Theme.Colors.accent)
-                    .symbolEffect(.bounce, value: self.page)
+                    .symbolEffect(.bounce, value: page)
             }
-            Text(page.title)
+            Text(p.title)
                 .font(Typography.title)
                 .foregroundColor(Theme.Colors.textPrimary)
-            Text(page.body)
+            Text(p.body)
                 .font(Typography.body)
                 .foregroundColor(Theme.Colors.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, Theme.Metrics.spacingL)
             Spacer()
-            if isLast {
-                Button {
-                    Haptics.selection()
-                    appNav.selectedTab = .portfolio
-                    finishOnboarding()
-                } label: {
-                    Text("Connect a brokerage now")
-                        .font(Typography.headline)
-                        .foregroundColor(Theme.Colors.textPrimary)
-                        .frame(maxWidth: .infinity, minHeight: 48)
-                        .background(
-                            RoundedRectangle(cornerRadius: Theme.Metrics.cornerRadius, style: .continuous)
-                                .stroke(Theme.Colors.textPrimary.opacity(0.55), lineWidth: Theme.Metrics.hairline)
-                        )
-                }
-                .buttonStyle(.plain)
-                .pressScale()
-                .padding(.horizontal, Theme.Metrics.spacingL)
-            }
-            Spacer()
-                .frame(height: 40)
         }
     }
 
     private var pageDots: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             ForEach(pages.indices, id: \.self) { i in
-                Circle()
+                Capsule()
                     .fill(i == page ? Theme.Colors.accent : Theme.Colors.textPrimary.opacity(0.2))
-                    .frame(width: 7, height: 7)
+                    .frame(width: i == page ? 20 : 7, height: 7)
                     .animation(Theme.Animation.interactive, value: page)
             }
         }
@@ -132,7 +119,7 @@ struct OnboardingView: View {
                 withAnimation(Theme.Animation.interactive) { self.page += 1 }
             } else {
                 Haptics.success()
-                appNav.selectedTab = .markets
+                appNav.selectedTab = .portfolio
                 finishOnboarding()
             }
         }

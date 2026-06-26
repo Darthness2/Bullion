@@ -38,17 +38,52 @@ final class BackendPortfolioService: PortfolioService, @unchecked Sendable {
     }
 
     func accounts() async throws -> [BrokerageAccount] {
+        let result = try await accountsWithSyncState()
+        return result.accounts
+    }
+
+    /// Fetch accounts plus partial-failure info. Enriches each account's
+    /// `totalValue`/`currency`/`lastSynced` from its holdings endpoint (the
+    /// `/accounts` endpoint doesn't include totals).
+    func accountsWithSyncState() async throws -> AccountsSyncResult {
         let resp: AccountsResponse = try await mapNetwork { try await self.get("/snaptrade/accounts") }
-        return resp.accounts.map { a in
-            BrokerageAccount(
+        var accounts: [BrokerageAccount] = []
+        for a in resp.accounts {
+            // Fetch holdings to get the real totalValue/currency/lastSynced.
+            let total: Double
+            let currency: String
+            let synced: Date
+            if let h: HoldingsResponse = try? await mapNetwork({ try await self.get("/snaptrade/accounts/\(a.id)/holdings") }) {
+                total = h.totalValue ?? h.holdings.map(\.marketValue).reduce(0, +)
+                currency = h.currency ?? "USD"
+                synced = h.lastSynced.flatMap { Self.iso8601.date(from: $0) } ?? Date()
+            } else {
+                total = 0
+                currency = "USD"
+                synced = Date()
+            }
+            accounts.append(BrokerageAccount(
                 id: a.id,
                 name: a.name ?? "Account",
                 brokerage: a.brokerage ?? "Unknown",
-                totalValue: 0,
-                currency: "USD",
-                lastSynced: Date(),
-                connectionStatus: .active
-            )
+                totalValue: total,
+                currency: currency,
+                lastSynced: synced,
+                connectionStatus: mapSyncStatus(a.syncStatus)
+            ))
+        }
+        return AccountsSyncResult(
+            accounts: accounts,
+            partial: resp.partial ?? false,
+            failedConnectionIds: resp.failedConnections ?? []
+        )
+    }
+
+    private func mapSyncStatus(_ raw: String?) -> ConnectionStatus {
+        switch raw?.lowercased() {
+        case "expired", "disconnected", "disabled": return .needsReconnect
+        case "active", "connected":                return .active
+        default:                                   return .active
         }
     }
 
@@ -221,6 +256,14 @@ extension BackendPortfolioService {
     }
 }
 
+// MARK: - Sync result
+
+struct AccountsSyncResult: Sendable {
+    let accounts: [BrokerageAccount]
+    let partial: Bool
+    let failedConnectionIds: [String]
+}
+
 // MARK: - Response types
 
 private struct AccountsResponse: Codable {
@@ -229,8 +272,12 @@ private struct AccountsResponse: Codable {
         let name: String?
         let brokerage: String?
         let connectionId: String?
+        let syncStatus: String?
     }
     let accounts: [Account]
+    /// Backend reports partial failures when some connections couldn't list.
+    let partial: Bool?
+    let failedConnections: [String]?
 }
 
 private struct HoldingsResponse: Codable {
@@ -287,7 +334,7 @@ enum PortfolioError: LocalizedError {
         case .authenticationCancelled:
             return "Authentication was cancelled."
         case .networkUnreachable:
-            return "Can't reach the Bullion backend. If you're running locally, start it with `npm start` in the backend folder. If you're using a deployed backend, check that its URL is set correctly."
+            return "Couldn't reach the connection service. Check your internet and try again."
         }
     }
 }

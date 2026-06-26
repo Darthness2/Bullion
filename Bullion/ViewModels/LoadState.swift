@@ -2,7 +2,7 @@ import Foundation
 
 /// Common load-state envelope so every async view can render
 /// loading / error / empty / loaded without a blank screen.
-enum LoadState<Value: Sendable>: Sendable {
+enum LoadState<Value: Sendable & Equatable>: Sendable, Equatable {
     case idle
     case loading
     case loaded(Value)

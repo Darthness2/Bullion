@@ -4,12 +4,16 @@ import Foundation
 /// throttling/coalescing of duplicate requests lands in Milestone 2.
 actor QuoteCache {
     private struct Entry { let quote: Quote; let cachedAt: Date }
+    private struct SparklineEntry { let closes: [Double]; let cachedAt: Date }
     private var cache: [String: Entry] = [:]
+    private var sparklines: [String: SparklineEntry] = [:]
     private let ttl: TimeInterval
+    private let sparklineTtl: TimeInterval
     private let maxEntries: Int
 
-    init(ttl: TimeInterval = 15, maxEntries: Int = 500) {
+    init(ttl: TimeInterval = 15, sparklineTtl: TimeInterval = 120, maxEntries: Int = 500) {
         self.ttl = ttl
+        self.sparklineTtl = sparklineTtl
         self.maxEntries = maxEntries
     }
 
@@ -35,8 +39,24 @@ actor QuoteCache {
         for q in quotes { set(q) }
     }
 
+    // MARK: - Sparkline cache (longer TTL — intraday closes don't change as often)
+
+    func getSparkline(_ symbol: String) -> [Double]? {
+        guard let entry = sparklines[symbol] else { return nil }
+        if Date().timeIntervalSince(entry.cachedAt) > sparklineTtl {
+            sparklines[symbol] = nil
+            return nil
+        }
+        return entry.closes
+    }
+
+    func setSparkline(_ symbol: String, closes: [Double]) {
+        sparklines[symbol] = SparklineEntry(closes: closes, cachedAt: Date())
+    }
+
     func clear() {
         cache.removeAll()
+        sparklines.removeAll()
     }
 
     func isStale(_ symbol: String) -> Bool {

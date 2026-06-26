@@ -24,6 +24,10 @@ protocol MarketDataProvider: Sendable {
     func headlineInstruments() async throws -> [Instrument]
     /// Curated "most active" list when the provider doesn't expose one.
     func defaultActiveSymbols() -> [String]
+    /// Curated popular stocks as full Instruments (with correct exchanges).
+    func popularStocks() -> [Instrument]
+    /// Curated popular futures as full Instruments.
+    func popularFutures() -> [Instrument]
 }
 
 // MARK: - Default implementations (convenience)

@@ -115,7 +115,7 @@ struct MarketsView: View {
                                 SummaryCard(
                                     instrument: instrument,
                                     quote: q,
-                                    sparkline: sparklineFor(q.symbol)
+                                    sparkline: vm.headlineSparklines[q.symbol] ?? []
                                 )
                             }
                             .buttonStyle(.plain)
@@ -137,7 +137,7 @@ struct MarketsView: View {
         switch vm.segment {
         case .stocks, .futures:
             VStack(alignment: .leading, spacing: Theme.Metrics.spacing) {
-                SectionHeader(title: vm.segment == .stocks ? "Most Active" : "Futures")
+                SectionHeader(title: vm.segment == .stocks ? "Popular Stocks" : "Popular Futures")
                 activeList(vm: vm)
             }
         }
@@ -172,6 +172,7 @@ struct MarketsView: View {
                     .foregroundColor(Theme.Colors.textPrimary)
                     .symbolEffect(.bounce, value: UserDefaults.standard.integer(forKey: "refreshInterval"))
             }
+            .accessibilityLabel("Auto-refresh interval")
         }
     }
 
@@ -217,13 +218,6 @@ struct MarketsView: View {
                 }
             }
             .appearAnimation(.scale)
-        }
-    }
-
-    private func sparklineFor(_ symbol: String) -> [Double] {
-        (0..<20).map { i in
-            let hash = abs("\(symbol)-\(i)".hashValue % 1000)
-            return 100 + Double(hash) / 10
         }
     }
 }
