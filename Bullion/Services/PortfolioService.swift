@@ -1,8 +1,8 @@
 import Foundation
 
-/// Talks to our own backend proxy for SnapTrade-related data.
-/// All SnapTrade secrets stay server-side; the app only sends/receives
-/// normalized JSON. Stubbed for Milestone 1 — implemented in Milestone 4.
+/// Abstraction over portfolio data. The live implementation
+/// (`DirectSnapTradeService`) talks to SnapTrade directly from the device —
+/// no backend. `MockPortfolioService` backs previews and tests.
 protocol PortfolioService: Sendable {
     /// Whether the user has linked any brokerage account.
     var isLinked: Bool { get async }

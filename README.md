@@ -13,7 +13,7 @@ Milestone 1 — scaffold, design system, and mock data. The full UI is navigable
 - Xcode 16+ (project uses synchronized file groups)
 - iOS 18+ deployment target
 - Swift 5.10+ (Observation framework, `@Observable`)
-- Node 20+ (for the backend proxy)
+- A SnapTrade `clientId` + `consumerKey` (entered in-app) — no server required
 
 ## Open the project
 
@@ -28,7 +28,7 @@ Select the **Bullion** scheme and an iOS Simulator, then build (Cmd+B) and run (
 - **MVVM** with `@Observable` view models (Observation framework).
 - **`MarketDataProvider` protocol** with `supportsEquities` / `supportsFutures` capability flags — swappable from Mock to Polygon without touching the UI.
 - **No third-party iOS packages.** Swift Charts (Apple), URLSession + async/await, SwiftData (M2).
-- **SnapTrade secrets stay server-side.** The app only calls our own backend. `userSecret` and brokerage credentials never touch the app.
+- **Backend-less SnapTrade.** The app talks to the SnapTrade REST API directly, signing each request on-device (HMAC-SHA256, CryptoKit) via `DirectSnapTradeService`. The `clientId`/`consumerKey` are entered in-app and stored in the iOS Keychain (`SnapTradeKeyStore`). No proxy server. Tradeoff: the consumer key ships in the app — fine for a personal build, not multi-user distribution. Your brokerage credentials are still entered only with SnapTrade and your broker, never with Bullion.
 - **Motion & animation.** All curves live in `Theme.Animation` (physics-based `.smooth`/`.bouncy` springs, iOS 18). Reusable modifiers (`.appearAnimation`, `.staggeredAppear`, `.pressScale`, `.shimmer`, `.priceFlash`, `.interactiveCard`) are in `DesignSystem/Modifiers/AnimationModifiers.swift`. Hero zoom navigation links list rows to `InstrumentDetailView` via `.matchedTransitionSource` + `.navigationTransition(.zoom)`. Gesture-driven sites use UIKit `Haptics`; declarative control-state changes use `.sensoryFeedback`.
 
 ## Folders
@@ -37,15 +37,12 @@ Select the **Bullion** scheme and an iOS Simulator, then build (Cmd+B) and run (
 Bullion/
   Models/          — Instrument, Quote, KeyStats, Candle, NewsItem, BrokerageAccount, Holding
   Services/        — MarketDataProvider, MockMarketDataProvider, APIClient, QuoteCache, PortfolioService, AppEnvironment
+  Services/SnapTrade/ — DirectSnapTradeService, SnapTradeKeyStore, SnapTradeSigner (on-device, no backend)
   ViewModels/      — @Observable VMs + LoadState
   Views/           — Root, Markets, Search, Detail, Watchlist, Portfolio, Settings, Shared
   DesignSystem/    — Theme (blue/white/gold, Light+Dark), Typography, reusable components
   Utilities/       — NumberFormatting, Date helpers, KeychainStore
-  Config/          — Secrets.swift (gitignored; backend URL only)
-backend/
-  server.js        — Express entry
-  routes/snaptrade.js — SnapTrade proxy (register, portal, accounts, holdings, transactions, disconnect)
-  routes/market.js — Optional Polygon proxy
+  Config/          — Secrets.swift (gitignored; SnapTrade OAuth callback scheme only)
 ```
 
 ## Build order (milestones)
@@ -53,7 +50,7 @@ backend/
 1. **Scaffold + design system + mock data** ← you are here
 2. Markets, Search, Detail, Watchlist wired to mock data + Swift Charts + SwiftData
 3. Real Polygon `MarketDataProvider` (equities + futures, capability flags, rate-limit throttling)
-4. Node backend SnapTrade proxy + iOS `PortfolioService` talking to it
+4. Backend-less SnapTrade: on-device request signing + `DirectSnapTradeService`
 5. End-to-end SnapTrade connect flow (`ASWebAuthenticationSession`, `ledger://` callback, reconnect/disconnect)
 6. Polish, accessibility, error/empty states, settings, tests
 
@@ -61,12 +58,11 @@ backend/
 
 | Key | Where | Notes |
 |-----|-------|-------|
-| SnapTrade `clientId`, `consumerKey` | `backend/.env` | Server-side only. Never in the app. |
-| Polygon API key | `backend/.env` | Server-side (if proxying) or app-side (M3). |
-| Backend URL | `Bullion/Config/Secrets.swift` | Gitignored. Only value the app needs. |
-| Backend session token | iOS Keychain | For our backend auth, not SnapTrade. |
+| SnapTrade `clientId`, `consumerKey` | Entered in-app (Settings → Advanced → Brokerage) | Stored in the iOS Keychain via `SnapTradeKeyStore`. |
+| SnapTrade `userSecret` | iOS Keychain | Returned by registerUser; never typed by the user. |
+| OAuth callback scheme | `Bullion/Config/Secrets.swift` | Gitignored. Must match `Info.plist` `CFBundleURLSchemes` and your SnapTrade redirect URI (`ledger://snaptrade-callback`). |
 
-You already have keys in `~/.config/snaptrade/settings.json` and `~/market_v2/.env.example`.
+Get your SnapTrade keys from [dashboard.snaptrade.com](https://dashboard.snaptrade.com), and whitelist the `ledger://snaptrade-callback` redirect URI there.
 
 ## Disclaimers
 
