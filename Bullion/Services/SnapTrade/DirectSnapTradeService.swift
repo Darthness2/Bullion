@@ -129,7 +129,7 @@ final class DirectSnapTradeService: PortfolioService, @unchecked Sendable {
     /// Registers a SnapTrade user if we don't already hold a user secret.
     private func registerIfNeeded() async throws {
         guard SnapTradeKeyStore.hasPartnerCredentials else {
-            throw PortfolioError.httpError(0, "SnapTrade keys not set. Add them in Settings → Brokerage.")
+            throw PortfolioError.notConfigured("Add your SnapTrade client ID and consumer key in Settings → Brokerage to connect.")
         }
         if SnapTradeKeyStore.isRegistered { return }
         let userId = SnapTradeKeyStore.userId ?? "bullion-\(UUID().uuidString.prefix(8))"
@@ -139,7 +139,7 @@ final class DirectSnapTradeService: PortfolioService, @unchecked Sendable {
             body: ["userId": userId]
         )
         guard let secret = resp.userSecret else {
-            throw PortfolioError.httpError(0, "SnapTrade did not return a user secret.")
+            throw PortfolioError.notConfigured("SnapTrade did not return a user secret. Check your credentials and try again.")
         }
         SnapTradeKeyStore.userId = resp.userId ?? userId
         SnapTradeKeyStore.userSecret = secret
@@ -178,14 +178,14 @@ final class DirectSnapTradeService: PortfolioService, @unchecked Sendable {
     /// Builds the canonical (key-sorted) query string shared by signing and the URL.
     private func canonicalQuery(authedUser: Bool, extra: [(String, String)]) throws -> String {
         guard let clientId = SnapTradeKeyStore.clientId, !clientId.isEmpty else {
-            throw PortfolioError.httpError(0, "SnapTrade clientId not set.")
+            throw PortfolioError.notConfigured("SnapTrade client ID not set. Add it in Settings → Brokerage.")
         }
         var items: [(String, String)] = [("clientId", clientId),
                                           ("timestamp", String(Int(Date().timeIntervalSince1970)))]
         if authedUser {
             guard let uid = SnapTradeKeyStore.userId, !uid.isEmpty,
                   let usec = SnapTradeKeyStore.userSecret, !usec.isEmpty else {
-                throw PortfolioError.httpError(0, "SnapTrade user not registered.")
+                throw PortfolioError.notConfigured("SnapTrade user not registered yet. Tap Connect Account to register.")
             }
             items.append(("userId", uid))
             items.append(("userSecret", usec))
@@ -201,13 +201,13 @@ final class DirectSnapTradeService: PortfolioService, @unchecked Sendable {
                              extraQuery: [(String, String)],
                              body: [String: Any]?) throws -> URLRequest {
         guard let consumerKey = SnapTradeKeyStore.consumerKey, !consumerKey.isEmpty else {
-            throw PortfolioError.httpError(0, "SnapTrade consumerKey not set.")
+            throw PortfolioError.notConfigured("SnapTrade consumer key not set. Add it in Settings → Brokerage.")
         }
         let fullPath = apiPrefix + path
         let query = try canonicalQuery(authedUser: authedUser, extra: extraQuery)
         guard let signature = SnapTradeSigner.signature(consumerKey: consumerKey,
                                                         content: body, path: fullPath, query: query) else {
-            throw PortfolioError.httpError(0, "Failed to sign request.")
+            throw PortfolioError.notConfigured("Could not sign the SnapTrade request. Re-check your consumer key.")
         }
         guard let url = URL(string: "\(baseHost)\(fullPath)?\(query)") else {
             throw PortfolioError.invalidResponse

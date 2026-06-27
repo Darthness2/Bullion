@@ -5,6 +5,13 @@ import SwiftUI
 /// user-friendly error with retry.
 struct ConnectBrokerageView: View {
     @Bindable var vm: PortfolioViewModel
+    @State private var showingKeySetup = false
+    @State private var hasKeys = SnapTradeKeyStore.hasPartnerCredentials
+
+    private var buttonTitle: String {
+        if vm.isConnecting { return "Connecting…" }
+        return hasKeys ? "Connect Account" : "Set Up SnapTrade"
+    }
 
     var body: some View {
         ScrollView {
@@ -44,15 +51,29 @@ struct ConnectBrokerageView: View {
                 .appearAnimation(.rise, index: 1)
 
                 PrimaryButton(
-                    title: vm.isConnecting ? "Connecting…" : "Connect Account",
+                    title: buttonTitle,
                     style: .primary,
-                    icon: "lock.shield",
+                    icon: hasKeys ? "lock.shield" : "key.fill",
                     isLoading: vm.isConnecting
                 ) {
-                    Task { await vm.connect() }
+                    if hasKeys {
+                        Task { await vm.connect() }
+                    } else {
+                        // No SnapTrade keys yet — walk the user through entering
+                        // them instead of failing the connect with an error.
+                        showingKeySetup = true
+                    }
                 }
                 .disabled(vm.isConnecting)
                 .appearAnimation(.rise, index: 2)
+
+                if !hasKeys {
+                    Text("First time? You'll add your free SnapTrade client ID and consumer key — we'll show you where to get them.")
+                        .font(Typography.caption)
+                        .foregroundColor(Theme.Colors.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .transition(.opacity)
+                }
 
                 if let err = vm.connectError {
                     HStack(spacing: Theme.Metrics.spacingS) {
@@ -95,6 +116,20 @@ struct ConnectBrokerageView: View {
                 .ignoresSafeArea()
             }
         )
+        .onAppear { hasKeys = SnapTradeKeyStore.hasPartnerCredentials }
+        .animation(Theme.Animation.interactive, value: hasKeys)
+        .sheet(isPresented: $showingKeySetup, onDismiss: {
+            hasKeys = SnapTradeKeyStore.hasPartnerCredentials
+        }) {
+            NavigationStack {
+                SnapTradeSettingsView()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showingKeySetup = false }
+                        }
+                    }
+            }
+        }
     }
 
     private func trustStep(icon: String, title: String, sub: String) -> some View {

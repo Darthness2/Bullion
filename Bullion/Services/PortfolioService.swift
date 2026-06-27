@@ -31,6 +31,9 @@ enum PortfolioError: LocalizedError {
     case decodingError(Error)
     case authenticationCancelled
     case networkUnreachable
+    /// Missing/invalid local configuration (e.g. SnapTrade keys not entered).
+    /// The associated message is shown to the user verbatim.
+    case notConfigured(String)
 
     var errorDescription: String? {
         switch self {
@@ -38,14 +41,22 @@ enum PortfolioError: LocalizedError {
             return "Invalid Connection Portal URL."
         case .invalidResponse:
             return "Invalid response from SnapTrade."
-        case .httpError(let code, _):
-            return code == 0 ? "Request could not be completed." : "SnapTrade error (HTTP \(code))."
+        case .httpError(let code, let body):
+            if code == 401 {
+                return "SnapTrade rejected the request (401). Double-check your client ID and consumer key in Settings → Brokerage."
+            }
+            if code == 0 {
+                return body.isEmpty ? "The request could not be completed." : body
+            }
+            return "SnapTrade error (HTTP \(code))."
         case .decodingError:
             return "Could not parse the SnapTrade response."
         case .authenticationCancelled:
             return "Authentication was cancelled."
         case .networkUnreachable:
             return "Can't reach SnapTrade. Check your internet connection and try again."
+        case .notConfigured(let message):
+            return message
         }
     }
 }
