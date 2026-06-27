@@ -2,7 +2,8 @@ import Foundation
 import SwiftUI
 
 /// Lightweight dependency container. The app uses Yahoo Finance (no key, no
-/// rate limit) for market data and the backend proxy for SnapTrade.
+/// rate limit) for market data and a backend-less, on-device SnapTrade
+/// integration (`DirectSnapTradeService`) for portfolio data.
 @Observable
 final class AppEnvironment {
     let marketProvider: any MarketDataProvider
@@ -16,7 +17,7 @@ final class AppEnvironment {
          quoteCache: QuoteCache = QuoteCache(),
          aiSettings: AISettingsStore = AISettingsStore()) {
         self.marketProvider = marketProvider ?? YahooFinanceProvider()
-        self.portfolioService = portfolioService ?? BackendPortfolioService()
+        self.portfolioService = portfolioService ?? DirectSnapTradeService()
         self.quoteCache = quoteCache
         self.aiSettings = aiSettings
         self.aiService = AIService(settings: aiSettings)

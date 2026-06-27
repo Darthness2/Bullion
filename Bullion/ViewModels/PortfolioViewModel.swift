@@ -24,17 +24,11 @@ final class PortfolioViewModel {
         do {
             let linked = await service.isLinked
             self.isLinked = linked
-            // Use the enriched accounts+sync-state endpoint (real totals).
-            let result: AccountsSyncResult
-            if let backend = service as? BackendPortfolioService {
-                result = try await backend.accountsWithSyncState()
-            } else {
-                let accs = try await service.accounts()
-                result = AccountsSyncResult(accounts: accs, partial: false, failedConnectionIds: [])
-            }
-            let accs = result.accounts
+            let accs = try await service.accounts()
             self.isLinked = !accs.isEmpty
-            self.partialSync = result.partial
+            // The direct SnapTrade /accounts call returns accounts in one shot,
+            // so there's no per-connection partial-sync state to surface.
+            self.partialSync = false
             accounts = accs.isEmpty ? .empty : .loaded(accs)
 
             // Reset so data for accounts removed/disconnected since last load

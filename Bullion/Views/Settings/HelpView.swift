@@ -16,8 +16,8 @@ struct HelpView: View {
                 text: "Go to the Portfolio tab and tap Connect Account. You'll be taken to SnapTrade's secure portal in the system browser to choose your broker and authenticate. Bullion never sees your credentials — only SnapTrade and your broker do."
             ),
             LegalSection(
-                heading: "Why does the connect button say the backend is unreachable?",
-                text: "During development, Bullion talks to a small local proxy server that holds your SnapTrade credentials safely. If you see 'Backend unreachable,' the proxy isn't running — start it from the backend folder with `npm start`, or switch to a deployed backend URL in your build configuration."
+                heading: "Why does it say to add SnapTrade keys?",
+                text: "Bullion connects to SnapTrade directly from your device — there's no server. Add your SnapTrade clientId and consumerKey in Settings → Advanced → Brokerage (SnapTrade). They're stored in the iOS Keychain and used only to sign requests to SnapTrade."
             ),
             LegalSection(
                 heading: "Why is some data delayed?",

@@ -1,12 +1,14 @@
 import SwiftUI
 
-/// Small backend-reachability indicator. Pings GET /health on appear and
-/// re-checks on tap. Green dot + "Backend online" / red dot + actionable hint.
+/// SnapTrade readiness indicator for the backend-less integration. Shows
+/// whether partner credentials (clientId + consumerKey) are configured, and
+/// optionally validates them against SnapTrade on tap. Green = ready,
+/// amber = keys missing, red = keys rejected.
 struct BackendHealthView: View {
     @Environment(\.appEnv) private var env
-    @State private var status: Status = .checking
+    @State private var status: Status = .unknown
 
-    private enum Status { case checking, online, offline }
+    private enum Status { case unknown, checking, ready, missing, invalid }
 
     var body: some View {
         HStack(spacing: 6) {
@@ -22,36 +24,41 @@ struct BackendHealthView: View {
         .accessibilityLabel(label)
         .contentShape(Rectangle())
         .onTapGesture { Task { await check() } }
-        .task { await check() }
+        .onAppear { refreshLocal() }
     }
 
     private var color: Color {
         switch status {
-        case .checking: return Theme.Colors.textSecondary
-        case .online:   return Theme.Colors.positive
-        case .offline:  return Theme.Colors.negative
+        case .unknown, .checking: return Theme.Colors.textSecondary
+        case .ready:              return Theme.Colors.positive
+        case .missing:            return Theme.Colors.accent
+        case .invalid:            return Theme.Colors.negative
         }
     }
 
     private var label: String {
         switch status {
-        case .checking: return "Checking backend…"
-        case .online:   return "Backend online"
-        case .offline:  return "Backend unreachable — tap to retry"
+        case .unknown:  return "SnapTrade keys"
+        case .checking: return "Checking SnapTrade keys…"
+        case .ready:    return "SnapTrade keys configured"
+        case .missing:  return "Add SnapTrade keys in Settings → Brokerage"
+        case .invalid:  return "SnapTrade keys rejected — tap to recheck"
         }
+    }
+
+    private func refreshLocal() {
+        status = SnapTradeKeyStore.hasPartnerCredentials ? .ready : .missing
     }
 
     @MainActor
     private func check() async {
+        guard SnapTradeKeyStore.hasPartnerCredentials else { status = .missing; return }
         status = .checking
-        let ok: Bool = await withCheckedContinuation { cont in
-            Task {
-                let result = await (env.portfolioService as? BackendPortfolioService)?.checkBackendHealth() ?? false
-                cont.resume(returning: result)
-            }
-        }
-        withAnimation(Theme.Animation.interactive) {
-            status = ok ? .online : .offline
+        do {
+            try await (env.portfolioService as? DirectSnapTradeService)?.validatePartnerCredentials()
+            withAnimation(Theme.Animation.interactive) { status = .ready }
+        } catch {
+            withAnimation(Theme.Animation.interactive) { status = .invalid }
         }
     }
 }

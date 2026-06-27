@@ -22,6 +22,34 @@ protocol PortfolioService: Sendable {
     func refresh(accountId: String) async throws
 }
 
+// MARK: - Errors
+
+enum PortfolioError: LocalizedError {
+    case invalidPortalURL
+    case invalidResponse
+    case httpError(Int, String)
+    case decodingError(Error)
+    case authenticationCancelled
+    case networkUnreachable
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidPortalURL:
+            return "Invalid Connection Portal URL."
+        case .invalidResponse:
+            return "Invalid response from SnapTrade."
+        case .httpError(let code, _):
+            return code == 0 ? "Request could not be completed." : "SnapTrade error (HTTP \(code))."
+        case .decodingError:
+            return "Could not parse the SnapTrade response."
+        case .authenticationCancelled:
+            return "Authentication was cancelled."
+        case .networkUnreachable:
+            return "Can't reach SnapTrade. Check your internet connection and try again."
+        }
+    }
+}
+
 // MARK: - Mock implementation (Milestone 1)
 
 final class MockPortfolioService: PortfolioService, @unchecked Sendable {
