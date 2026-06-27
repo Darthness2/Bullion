@@ -13,7 +13,7 @@ struct PrivacyPolicyView: View {
             ),
             LegalSection(
                 heading: "Brokerage linking (SnapTrade)",
-                text: "When you link a brokerage account, Bullion connects you to SnapTrade, which handles the secure OAuth flow in the system browser. Your brokerage credentials are entered directly with SnapTrade and your broker — Bullion never sees or stores them. SnapTrade returns a user secret to our backend proxy, which is kept server-side and used only to fetch read-only holdings, balances, and transactions for display in the app."
+                text: "When you link a brokerage account, Bullion connects you to SnapTrade, which handles the secure OAuth flow in the system browser. Your brokerage credentials are entered directly with SnapTrade and your broker — Bullion never sees or stores them. Bullion talks to SnapTrade directly from your device (no Bullion server); the SnapTrade user secret is stored in your device's iOS Keychain and used only to fetch read-only holdings, balances, and transactions for display in the app."
             ),
             LegalSection(
                 heading: "AI research",
@@ -25,7 +25,7 @@ struct PrivacyPolicyView: View {
             ),
             LegalSection(
                 heading: "Data retention",
-                text: "We do not maintain user accounts or profiles on Bullion servers. The only server-side state is the SnapTrade user secret held by our backend proxy for the purpose of fetching your linked account data, which you can revoke at any time by disconnecting in the app."
+                text: "We do not maintain user accounts or profiles on Bullion servers — Bullion has no backend. Your SnapTrade credentials and user secret are stored only in your device's iOS Keychain, and you can revoke access at any time by disconnecting in the app or clearing the keys in Settings."
             ),
             LegalSection(
                 heading: "Contact",

@@ -115,6 +115,11 @@ struct SettingsView: View {
     private var advancedSection: some View {
         Section("Advanced") {
             NavigationLink {
+                SnapTradeSettingsView()
+            } label: {
+                Label("Brokerage (SnapTrade)", systemImage: "building.columns")
+            }
+            NavigationLink {
                 AISettingsView()
             } label: {
                 Label("AI Research Provider", systemImage: "brain.head.profile")
