@@ -104,7 +104,11 @@ final class MarketsViewModel {
                 }
                 return sparks
             }
-            headlineQuotes = quotes.isEmpty ? .empty : .loaded(quotes)
+            // Preserve curated instrument order — otherwise cache-hits jump to
+            // the front and the headline cards reshuffle on every refresh.
+            let bySymbol = Dictionary(uniqueKeysWithValues: quotes.map { ($0.symbol, $0) })
+            let ordered = symbols.compactMap { bySymbol[$0] }
+            headlineQuotes = ordered.isEmpty ? .empty : .loaded(ordered)
             headlineSparklines = await sparklineTask.value
             lastUpdated = Date()
         } catch {

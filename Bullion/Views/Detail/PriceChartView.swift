@@ -6,6 +6,9 @@ import Charts
 struct PriceChartView: View {
     let candles: [Candle]
     let previousClose: Double?
+    /// The selected range drives axis date formatting and whether the
+    /// prev-close baseline is meaningful (only on the intraday 1D view).
+    var range: ChartRange = .oneD
 
     @State private var dragLocation: CGPoint?
     @State private var selectedCandle: Candle?
@@ -22,8 +25,11 @@ struct PriceChartView: View {
                         x: .value("Time", candle.t),
                         y: .value("Price", candle.c)
                     )
-                    .foregroundStyle(Theme.Colors.accent)
-                    .interpolationMethod(.catmullRom)
+                    .foregroundStyle(lineColor)
+                    // Monotone interpolation hugs the data: catmullRom can
+                    // overshoot and draw the line below the period's true low,
+                    // which reads as a fake price dip on a finance chart.
+                    .interpolationMethod(.monotone)
                     .lineStyle(StrokeStyle(lineWidth: 2))
                     .opacity(animateChart ? 1 : 0)
 
@@ -31,16 +37,16 @@ struct PriceChartView: View {
                         x: .value("Time", candle.t),
                         y: .value("Price", candle.c)
                     )
-                    .interpolationMethod(.catmullRom)
+                    .interpolationMethod(.monotone)
                     .foregroundStyle(
                         .linearGradient(
-                            colors: [Theme.Colors.accent.opacity(animateChart ? 0.20 : 0),
-                                     Theme.Colors.accent.opacity(0)],
+                            colors: [lineColor.opacity(animateChart ? 0.20 : 0),
+                                     lineColor.opacity(0)],
                             startPoint: .top, endPoint: .bottom
                         )
                     )
                 }
-                if let prevClose = previousClose {
+                if let prevClose = previousClose, showsPrevCloseLine {
                     RuleMark(y: .value("Prev Close", prevClose))
                         .foregroundStyle(Theme.Colors.textSecondary.opacity(0.4))
                         .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
@@ -78,7 +84,7 @@ struct PriceChartView: View {
                     AxisGridLine().foregroundStyle(Theme.Colors.separator.opacity(0.3))
                     AxisValueLabel {
                         if let d = value.as(Double.self) {
-                            Text(NumberFormatting.price(d, digits: 0))
+                            Text(NumberFormatting.price(d, digits: yAxisDigits))
                                 .foregroundStyle(Theme.Colors.textSecondary)
                         }
                     }
@@ -111,16 +117,75 @@ struct PriceChartView: View {
         }
     }
 
+    /// Color the line/area by period performance (first vs last close) —
+    /// green when up, red when down — matching the markets sparklines and the
+    /// convention every major finance app uses.
+    private var lineColor: Color {
+        guard let first = candles.first?.c, let last = candles.last?.c else {
+            return Theme.Colors.accent
+        }
+        if last > first { return Theme.Colors.positive }
+        if last < first { return Theme.Colors.negative }
+        return Theme.Colors.accent
+    }
+
+    /// The prev-close baseline is only the relevant reference on the intraday
+    /// (1D) view; on multi-day ranges it's just a stray line mid-chart.
+    private var showsPrevCloseLine: Bool { range == .oneD }
+
     private var yDomain: ClosedRange<Double> {
         let lows = candles.map(\.l)
         let highs = candles.map(\.h)
         guard let lo = lows.min(), let hi = highs.max() else { return 0...1 }
+        // Flat series (lo == hi) would collapse to a zero-height domain and
+        // render a degenerate chart — give it a small symmetric band.
+        guard hi > lo else {
+            let band = max(abs(hi) * 0.01, 0.5)
+            return (lo - band)...(hi + band)
+        }
         let pad = (hi - lo) * 0.1
         return (lo - pad)...(hi + pad)
     }
 
+    /// Axis decimal precision scaled to price magnitude so low-priced or
+    /// tight-range instruments don't collapse to a single repeated label.
+    private var yAxisDigits: Int {
+        let hi = candles.map(\.h).max() ?? 0
+        switch abs(hi) {
+        case 1000...:    return 0
+        case 100..<1000: return 0
+        case 10..<100:   return 1
+        case 1..<10:     return 2
+        default:         return 4
+        }
+    }
+
+    /// Axis labels: time-of-day intraday, calendar dates for multi-day ranges,
+    /// and year for the long horizons.
     private var xAxisFormat: Date.FormatStyle {
-        .dateTime.hour().minute()
+        switch range {
+        case .oneD:            return .dateTime.hour().minute()
+        case .oneW:            return .dateTime.weekday(.abbreviated)
+        case .oneM, .threeM:   return .dateTime.month(.abbreviated).day()
+        case .oneY:            return .dateTime.month(.abbreviated)
+        case .fiveY, .max:     return .dateTime.year()
+        }
+    }
+
+    /// Crosshair timestamp: intraday shows the time, longer ranges show the
+    /// date (a bare time on a 1Y chart is meaningless).
+    private func crosshairDateText(_ date: Date) -> String {
+        switch range {
+        case .oneD:
+            return date.asOfTimeText
+        case .oneW:
+            return date.shortDateText
+        default:
+            let f = DateFormatter()
+            f.dateStyle = .medium
+            f.timeStyle = .none
+            return f.string(from: date)
+        }
     }
 
     private func handleDrag(value: CGPoint, proxy: ChartProxy, geo: GeometryProxy) {
@@ -141,7 +206,7 @@ struct PriceChartView: View {
             Text(NumberFormatting.price(candle.c))
                 .font(Typography.chartCross)
                 .foregroundColor(Theme.Colors.textPrimary)
-            Text(candle.t.asOfTimeText)
+            Text(crosshairDateText(candle.t))
                 .font(Typography.chartMicro)
                 .foregroundColor(Theme.Colors.textSecondary)
         }

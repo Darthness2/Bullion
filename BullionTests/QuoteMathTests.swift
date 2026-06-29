@@ -73,11 +73,12 @@ struct QuoteMathTests {
                         marketValue: 16_000, dayChange: nil, dayChangePercent: nil)
         // …enriched from a Yahoo quote where last=165, prevClose=160.
         let q = makeQuote(last: 165, prevClose: 160)
-        let change = q.last - (q.previousClose ?? 0)
-        h.dayChange = change
-        h.dayChangePercent = q.previousClose == 0 ? nil : (change / q.previousClose! * 100)
-        #expect(h.dayChange == 5)
-        #expect(h.dayChangePercent == 3.125)  // 5/160*100
+        let perShare = q.last - (q.previousClose ?? 0)
+        // dayChange is a position-level dollar figure: per-share move × quantity.
+        h.dayChange = perShare * h.quantity
+        h.dayChangePercent = q.previousClose == 0 ? nil : (perShare / q.previousClose! * 100)
+        #expect(h.dayChange == 500)            // 5/share × 100 shares
+        #expect(h.dayChangePercent == 3.125)   // 5/160*100
     }
 
     @Test("Enrichment: negative day change")
@@ -85,10 +86,10 @@ struct QuoteMathTests {
         var h = Holding(symbol: "TSLA", name: "Tesla", quantity: 60, avgCost: 220,
                         marketValue: 14_910, dayChange: nil, dayChangePercent: nil)
         let q = makeQuote(last: 248.5, prevClose: 252.0)
-        let change = q.last - (q.previousClose ?? 0)
-        h.dayChange = change
-        h.dayChangePercent = (change / q.previousClose! * 100)
-        #expect(h.dayChange == -3.5)
+        let perShare = q.last - (q.previousClose ?? 0)
+        h.dayChange = perShare * h.quantity
+        h.dayChangePercent = (perShare / q.previousClose! * 100)
+        #expect(h.dayChange == -210)           // -3.5/share × 60 shares
         #expect(h.dayChangePercent! < 0)
     }
 }

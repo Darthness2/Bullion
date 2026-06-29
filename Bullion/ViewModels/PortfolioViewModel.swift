@@ -170,11 +170,16 @@ final class PortfolioViewModel {
         for (accountId, holdings) in holdingsByAccount {
             updated[accountId] = holdings.map { h in
                 guard h.dayChange == nil, let q = quoteBySymbol[h.symbol],
-                      let prev = q.previousClose else { return h }
+                      let prev = q.previousClose, prev != 0 else { return h }
                 var enriched = h
-                let change = q.last - prev
-                enriched.dayChange = change
-                enriched.dayChangePercent = prev == 0 ? nil : (change / prev * 100)
+                // `change` is the per-share move; `dayChange` is a position-level
+                // dollar figure (matches the backend's contract and how it's
+                // summed in `totalDayChange` / rendered in HoldingDetailView),
+                // so scale by quantity. The percent is share-vs-position
+                // invariant, so it needs no scaling.
+                let perShare = q.last - prev
+                enriched.dayChange = perShare * h.quantity
+                enriched.dayChangePercent = perShare / prev * 100
                 return enriched
             }
         }

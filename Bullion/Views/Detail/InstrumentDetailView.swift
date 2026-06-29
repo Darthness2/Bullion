@@ -119,7 +119,8 @@ struct InstrumentDetailView: View {
             } else {
                 PriceChartView(
                     candles: vm?.candles.value ?? [],
-                    previousClose: vm?.quote.value?.previousClose
+                    previousClose: vm?.quote.value?.previousClose,
+                    range: vm?.selectedRange ?? .oneM
                 )
                 .frame(height: 240)
                 .appearAnimation(.blur, index: 1)
