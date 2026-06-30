@@ -14,8 +14,21 @@ struct MarketsView: View {
             content
                 .navigationTitle("Bullion")
                 .navigationBarTitleDisplayMode(.large)
-                .toolbarColorScheme(.dark, for: .navigationBar)
-                .toolbar { refreshMenu }
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        if let vm, vm.isRefreshing {
+                            ProgressView()
+                                .controlSize(.small)
+                                .accessibilityLabel("Refreshing market data")
+                        } else if let last = vm?.lastUpdated {
+                            Text(last.asOfTimeText)
+                                .font(Typography.caption2)
+                                .foregroundColor(Theme.Colors.textSecondary)
+                                .accessibilityLabel("Last updated \(last.formatted(date: .omitted, time: .shortened))")
+                        }
+                    }
+                    refreshMenu
+                }
                 .navigationDestination(for: Instrument.self) { instrument in
                     InstrumentDetailView(instrument: instrument)
                         .navigationTransition(.zoom(sourceID: instrument.id, in: heroNamespace))
@@ -60,6 +73,9 @@ struct MarketsView: View {
                         rawValue: UserDefaults.standard.integer(forKey: "refreshInterval")
                     ) ?? .fifteenSec
                     vm.startAutoRefresh(intervalSeconds: interval.rawValue)
+                    // Refresh immediately on foreground so users don't stare at
+                    // stale data for up to `interval` seconds after returning.
+                    Task { await vm.refresh() }
                 } else {
                     vm.stopAutoRefresh()
                 }

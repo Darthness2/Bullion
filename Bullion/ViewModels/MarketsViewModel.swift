@@ -34,6 +34,11 @@ final class MarketsViewModel {
         self.quoteCache = quoteCache
     }
 
+    deinit {
+        timerTask?.cancel()
+        refreshTask?.cancel()
+    }
+
     @MainActor
     func refresh() async {
         // Cancel any in-flight load so pull-to-refresh always re-runs,
@@ -59,7 +64,11 @@ final class MarketsViewModel {
 
     @MainActor
     func loadHeadlines() async {
-        headlineQuotes = .loading
+        // Only flash to skeleton on the very first load. Background refreshes
+        // keep the previous `.loaded` value visible so the screen doesn't
+        // shimmer-blank every N seconds; `isRefreshing` drives a subtle
+        // indicator instead.
+        if case .idle = headlineQuotes { headlineQuotes = .loading }
         do {
             let instruments = try await provider.headlineInstruments()
             headlineInstruments = instruments
@@ -104,17 +113,24 @@ final class MarketsViewModel {
                 }
                 return sparks
             }
-            headlineQuotes = quotes.isEmpty ? .empty : .loaded(quotes)
+            guard !Task.isCancelled else { return }
+            // Preserve headline instrument order in the displayed strip.
+            let bySymbol = Dictionary(uniqueKeysWithValues: quotes.map { ($0.symbol, $0) })
+            let ordered = symbols.compactMap { bySymbol[$0] }
+            headlineQuotes = ordered.isEmpty ? .empty : .loaded(ordered)
             headlineSparklines = await sparklineTask.value
             lastUpdated = Date()
         } catch {
-            headlineQuotes = .failed(error.localizedDescription)
+            if !Task.isCancelled {
+                headlineQuotes = .failed(error.localizedDescription)
+            }
         }
     }
 
     @MainActor
     func loadActive() async {
-        activeQuotes = .loading
+        // See loadHeadlines: only show skeleton on first load, not every refresh.
+        if case .idle = activeQuotes { activeQuotes = .loading }
         do {
             // Segment-aware curated lists with correct exchanges.
             let instruments: [Instrument]
@@ -139,12 +155,15 @@ final class MarketsViewModel {
                 quotes.append(contentsOf: fetched)
                 if let cache = quoteCache { await cache.setAll(fetched) }
             }
+            guard !Task.isCancelled else { return }
             // Preserve instrument order in the displayed list.
             let bySymbol = Dictionary(uniqueKeysWithValues: quotes.map { ($0.symbol, $0) })
             let ordered = symbols.compactMap { bySymbol[$0] }
             activeQuotes = ordered.isEmpty ? .empty : .loaded(ordered)
         } catch {
-            activeQuotes = .failed(error.localizedDescription)
+            if !Task.isCancelled {
+                activeQuotes = .failed(error.localizedDescription)
+            }
         }
     }
 
