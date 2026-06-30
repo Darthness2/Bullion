@@ -5,6 +5,8 @@ struct InstrumentDetailView: View {
     @Environment(\.appEnv) private var env
     @Environment(WatchlistViewModel.self) private var watchlistVM
     @State private var vm: InstrumentDetailViewModel?
+    @State private var showSMA20 = false
+    @State private var showBollinger = false
     @Namespace private var rangeNamespace
     @Namespace private var heroNamespace
 
@@ -119,14 +121,60 @@ struct InstrumentDetailView: View {
             } else {
                 PriceChartView(
                     candles: vm?.candles.value ?? [],
-                    previousClose: vm?.quote.value?.previousClose
+                    previousClose: vm?.quote.value?.previousClose,
+                    showSMA20: showSMA20,
+                    showBollinger: showBollinger
                 )
                 .frame(height: 240)
                 .appearAnimation(.blur, index: 1)
             }
 
+            indicatorToggles
             rangePicker
         }
+    }
+
+    /// Toggleable technical-indicator overlays. Indicators need >= 20
+    /// candles, so they're only meaningful on 1M+ ranges; on 1D/1W the
+    /// toggles are disabled with an honest hint.
+    private var indicatorToggles: some View {
+        let enoughData = (vm?.candles.value ?? []).count >= 20
+        return HStack(spacing: Theme.Metrics.spacingS) {
+            indicatorChip("SMA 20", isOn: $showSMA20, enabled: enoughData)
+            indicatorChip("Bollinger", isOn: $showBollinger, enabled: enoughData)
+            Spacer()
+        }
+    }
+
+    private func indicatorChip(_ label: String, isOn: Binding<Bool>, enabled: Bool) -> some View {
+        Button {
+            Haptics.selection()
+            isOn.wrappedValue.toggle()
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: isOn.wrappedValue ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 11))
+                Text(label)
+                    .font(Typography.caption2)
+            }
+            .foregroundColor(isOn.wrappedValue ? Theme.Colors.accent : Theme.Colors.textSecondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                Capsule()
+                    .fill(isOn.wrappedValue ? Theme.Colors.accent.opacity(0.12) : Theme.Colors.surface)
+            )
+            .overlay(
+                Capsule().stroke(
+                    isOn.wrappedValue ? Theme.Colors.accent.opacity(0.3) : Theme.Colors.separator,
+                    lineWidth: Theme.Metrics.hairline
+                )
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.4)
+        .accessibilityLabel("\(label) overlay\(enabled ? "" : ", needs more data")")
     }
 
     private var rangePicker: some View {

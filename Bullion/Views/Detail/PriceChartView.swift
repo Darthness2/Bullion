@@ -2,14 +2,45 @@ import SwiftUI
 import Charts
 
 /// Swift Charts line/area chart with gold accent, gradient fill,
-/// prev-close reference line, draggable crosshair, and animated draw-in.
+/// prev-close reference line, draggable crosshair, animated draw-in, and
+/// optional technical-indicator overlays (SMA-20, Bollinger Bands).
 struct PriceChartView: View {
     let candles: [Candle]
     let previousClose: Double?
+    var showSMA20: Bool = false
+    var showBollinger: Bool = false
 
     @State private var dragLocation: CGPoint?
     @State private var selectedCandle: Candle?
     @State private var animateChart = false
+
+    private var smaSeries: [(date: Date, value: Double)] {
+        guard showSMA20, candles.count >= 20 else { return [] }
+        let closes = candles.map(\.c)
+        let period = 20
+        var out: [(Date, Double)] = []
+        for i in (period - 1)..<closes.count {
+            let slice = closes[(i - period + 1)...i]
+            let avg = slice.reduce(0, +) / Double(period)
+            out.append((candles[i].t, avg))
+        }
+        return out
+    }
+
+    private var bollingerSeries: [(date: Date, upper: Double, middle: Double, lower: Double)] {
+        guard showBollinger, candles.count >= 20 else { return [] }
+        let closes = candles.map(\.c)
+        let period = 20
+        var out: [(Date, Double, Double, Double)] = []
+        for i in (period - 1)..<closes.count {
+            let slice = Array(closes[(i - period + 1)...i])
+            let mean = slice.reduce(0, +) / Double(period)
+            let variance = slice.map { pow($0 - mean, 2) }.reduce(0, +) / Double(period)
+            let sd = sqrt(variance)
+            out.append((candles[i].t, mean + 2 * sd, mean, mean - 2 * sd))
+        }
+        return out
+    }
 
     var body: some View {
         if candles.isEmpty {
@@ -39,6 +70,30 @@ struct PriceChartView: View {
                             startPoint: .top, endPoint: .bottom
                         )
                     )
+                }
+                // SMA-20 overlay
+                if showSMA20 {
+                    ForEach(smaSeries, id: \.date) { point in
+                        LineMark(
+                            x: .value("Time", point.date),
+                            y: .value("SMA20", point.value)
+                        )
+                        .foregroundStyle(Theme.Colors.textSecondary.opacity(0.7))
+                        .interpolationMethod(.catmullRom)
+                        .lineStyle(StrokeStyle(lineWidth: 1.25))
+                        .opacity(animateChart ? 1 : 0)
+                    }
+                }
+                // Bollinger Bands overlay (upper + lower envelope)
+                if showBollinger {
+                    ForEach(bollingerSeries, id: \.date) { b in
+                        LineMark(x: .value("Time", b.date), y: .value("BB Upper", b.upper))
+                            .foregroundStyle(Theme.Colors.textSecondary.opacity(0.35))
+                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                        LineMark(x: .value("Time", b.date), y: .value("BB Lower", b.lower))
+                            .foregroundStyle(Theme.Colors.textSecondary.opacity(0.35))
+                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                    }
                 }
                 if let prevClose = previousClose {
                     RuleMark(y: .value("Prev Close", prevClose))
