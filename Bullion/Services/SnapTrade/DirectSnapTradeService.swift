@@ -85,28 +85,77 @@ final class DirectSnapTradeService: PortfolioService, @unchecked Sendable {
         }
     }
 
+    /// Recent account activity: brokerage *transactions* (dividends, interest,
+    /// transfers, corporate actions) merged with *orders* (buys/sells).
+    ///
+    /// Previously this only hit `/orders`, so dividends, splits, and transfers
+    /// never appeared — and `amount` was computed as qty*price, so a dividend
+    /// (which has no qty/price but a real cash amount) would render as \$0.
+    /// Now we hit `/transactions` for the cash-amount-bearing activity and
+    /// merge with `/orders` for trade detail, deduping by id. The transactions
+    /// endpoint's `cash.amount` is the authoritative cash flow for dividends
+    /// and interest; for orders we fall back to qty*price only when cash is
+    /// absent.
     func transactions(accountId: String) async throws -> [Transaction] {
-        let orders: [STOrder] = try await send(
-            "GET", "/accounts/\(percentEncodedPathComponent(accountId))/orders", authedUser: true,
+        let path = "/accounts/\(percentEncodedPathComponent(accountId))"
+        async let txnsResp: STTransactionsResponse? = try? await send(
+            "GET", "\(path)/transactions", authedUser: true,
+            extraQuery: [("days", "90")]
+        )
+        async let ordersResp: [STOrder] = try await send(
+            "GET", "\(path)/orders", authedUser: true,
             extraQuery: [("state", "all"), ("days", "90")]
         )
-        return orders.map { o in
+
+        let txns = (try? await txnsResp)?.results ?? []
+        let orders = try await ordersResp
+
+        var merged: [String: Transaction] = [:]
+        for t in txns {
+            let sym = t.universalSymbol ?? t.symbol?.symbol
+            let ticker = sym?.symbol ?? sym?.rawSymbol ?? t.currency ?? ""
+            let amount = t.cash?.amount ?? t.fee?.amount
+            let qty = t.units?.value
+            let price = t.price?.value
+            // If the transactions endpoint gives no amount (some brokers),
+            // derive from qty*price so we don't show a misleading \$0.
+            let resolvedAmount = amount ?? ((qty ?? 0) * (price ?? 0))
+            let id = t.id ?? UUID().uuidString
+            merged[id] = Transaction(
+                id: id,
+                symbol: ticker,
+                type: t.type ?? "transaction",
+                quantity: qty,
+                price: price,
+                amount: resolvedAmount,
+                date: parseDate(t.date),
+                description: t.description ?? "\(t.type ?? "Transaction") \(ticker)".trimmingCharacters(in: .whitespaces)
+            )
+        }
+        for o in orders {
             let sym = o.universalSymbol ?? o.symbol?.symbol
             let ticker = sym?.symbol ?? sym?.rawSymbol ?? ""
             let qty = o.totalQuantity?.value ?? o.filledQuantity?.value
             let price = o.executionPrice?.value
-            return Transaction(
-                id: o.brokerageOrderId ?? UUID().uuidString,
-                symbol: ticker,
-                type: o.action ?? "order",
-                quantity: qty,
-                price: price,
-                amount: (qty ?? 0) * (price ?? 0),
-                date: parseDate(o.timeExecuted ?? o.timePlaced),
-                description: "\(o.action ?? "Order") \(qty.map { String($0) } ?? "") \(ticker)"
-                    .trimmingCharacters(in: .whitespaces)
-            )
+            let id = o.brokerageOrderId ?? UUID().uuidString
+            // Don't overwrite a real transaction (e.g. a dividend) with an
+            // order that happens to share an id; orders are supplementary.
+            if merged[id] == nil {
+                merged[id] = Transaction(
+                    id: id,
+                    symbol: ticker,
+                    type: o.action ?? "order",
+                    quantity: qty,
+                    price: price,
+                    amount: (qty ?? 0) * (price ?? 0),
+                    date: parseDate(o.timeExecuted ?? o.timePlaced),
+                    description: "\(o.action ?? "Order") \(qty.map { String($0) } ?? "") \(ticker)"
+                        .trimmingCharacters(in: .whitespaces)
+                )
+            }
         }
+        // Newest first.
+        return merged.values.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
     }
 
     func connectionPortalURL() async throws -> URL {
@@ -378,8 +427,11 @@ private struct STAccount: Decodable {
     let status: String?
 
     struct STBalanceHolder: Decodable { let total: STAmount? }
-    struct STAmount: Decodable { let amount: Double?; let currency: String? }
 }
+
+/// Cash amount returned by SnapTrade for balances, transactions, and fees.
+/// Top-level so both `STAccount` and `STTransaction` can use it.
+private struct STAmount: Decodable { let amount: Double?; let currency: String? }
 
 private struct STSyncStatus: Decodable {
     let holdings: STStatus?
@@ -430,6 +482,28 @@ private struct STOrder: Decodable {
     let timePlaced: String?
     let symbol: STSymbolHolder?
     let universalSymbol: STSymbol?
+}
+
+/// Brokerage *transactions*: dividends, interest, transfers, corporate
+/// actions, fees, etc. These carry a real cash amount (unlike orders, whose
+/// amount we previously derived from qty*price — which made dividends show
+/// as \$0). The `/accounts/{id}/transactions` endpoint returns these.
+private struct STTransactionsResponse: Decodable {
+    let results: [STTransaction]
+}
+
+private struct STTransaction: Decodable {
+    let id: String?
+    let type: String?          // Dividend, Interest, Transfer, Buy, Sell, ...
+    let date: String?
+    let currency: String?
+    let description: String?
+    let symbol: STSymbolHolder?
+    let universalSymbol: STSymbol?
+    let units: STDecimal?
+    let price: STDecimal?
+    let cash: STAmount?         // the authoritative cash flow (dividends!)
+    let fee: STAmount?
 }
 
 private struct STDecimal: Decodable {
