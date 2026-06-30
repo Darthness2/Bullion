@@ -2,11 +2,14 @@ import SwiftUI
 
 // MARK: - Theme
 
-/// Minimalist monochrome theme with a signature blue accent drawn from the
-/// app icon. Pure black/white/grayscale as the base; blue is the brand accent
-/// (buttons, tab indicators, charts, active states). Green/red remain
-/// reserved for price movement and P/L.
-/// Supports Light (soft gray) and Dark (pure black, OLED-friendly).
+/// Warm editorial theme built on a five-color palette:
+///   2D3142 — charcoal (dark backgrounds, primary ink in light)
+///   BFC0C0 — warm gray (light background, secondary text in dark)
+///   FFFFFF — white (cards, surfaces)
+///   EF8354 — coral (signature accent: buttons, tabs, charts, active states)
+///   4F5D75 — slate (secondary text, structure)
+/// Green/red remain reserved for price movement and P/L only.
+/// Supports Light (warm gray + white cards) and Dark (deep charcoal).
 enum Theme {
     enum Colors {
         // Backgrounds — pure black in dark, soft gray in light
@@ -128,18 +131,19 @@ enum Theme {
         )
     }
 
-    // MARK: - Allocation palette (blue-tinted grayscale)
+    // MARK: - Allocation palette (coral / slate / charcoal from the brand palette)
 
-    /// Blue-tinted shades cycled across holding slices — adaptive per mode.
+    /// Shades cycled across holding slices — adaptive per mode, drawn from the
+    /// five-color brand palette (coral, slate, charcoal) rather than blue.
     static let monochromeScale: [Color] = [
-        adaptive(light: Color(hex: 0x002080), dark: Color(hex: 0x3B6FE0)),
-        adaptive(light: Color(hex: 0x0030A0), dark: Color(hex: 0x5586E8)),
-        adaptive(light: Color(hex: 0x0040B0), dark: Color(hex: 0x6B9BF0)),
-        adaptive(light: Color(hex: 0x0050C0), dark: Color(hex: 0x80AFF5)),
-        adaptive(light: Color(hex: 0x1C1C1E), dark: Color(hex: 0xC3D7F4)),
-        adaptive(light: Color(hex: 0x3A3A3C), dark: Color(hex: 0xA8C2EA)),
-        adaptive(light: Color(hex: 0x636366), dark: Color(hex: 0x8E8E93)),
-        adaptive(light: Color(hex: 0xAEAEB2), dark: Color(hex: 0x48484A)),
+        adaptive(light: Color(hex: 0xEF8354), dark: Color(hex: 0xEF8354)),
+        adaptive(light: Color(hex: 0x4F5D75), dark: Color(hex: 0x6B7A92)),
+        adaptive(light: Color(hex: 0x2D3142), dark: Color(hex: 0xBFC0C0)),
+        adaptive(light: Color(hex: 0xC46A3E), dark: Color(hex: 0xF2A37A)),
+        adaptive(light: Color(hex: 0x3B475C), dark: Color(hex: 0x8E9AB0)),
+        adaptive(light: Color(hex: 0x5C6478), dark: Color(hex: 0xA8B0C0)),
+        adaptive(light: Color(hex: 0x8088A0), dark: Color(hex: 0x6E7686)),
+        adaptive(light: Color(hex: 0xBFC0C0), dark: Color(hex: 0x4F5D75)),
     ]
 }
 
@@ -162,45 +166,48 @@ extension Color {
     }
 }
 
-// MARK: - Palette — Monochrome Black / White / Gray
+// MARK: - Palette — Coral / Slate / Charcoal (5-color brand palette)
 
-// Light — soft gray background, black ink
-private let cBackgroundLight       = Color(hex: 0xF5F5F7)
-private let cSurfaceLight          = Color(hex: 0xFFFFFF)
-private let cSurfaceElevatedLight  = Color(hex: 0xFAFAFA)
-private let cInkLight              = Color(hex: 0x1C1C1E)
-private let cInkSubtleLight        = Color(hex: 0x3A3A3C)
-private let cTextPrimaryLight      = Color(hex: 0x1C1C1E)
-private let cTextSecondaryLight    = Color(hex: 0x6E6E73)
-private let cTextOnPrimaryLight    = Color.white
-private let cPositiveLight         = Color(hex: 0x1E8E5A)
-private let cNegativeLight          = Color(hex: 0xC0392B)
-private let cSeparatorLight        = Color(hex: 0xD8D8DC)
-private let cShadowLight           = Color(hex: 0x1C1C1E)
+// Light — warm gray background, white cards, charcoal ink, slate secondary.
+//   2D3142 charcoal, BFC0C0 warm gray, FFFFFF white, EF8354 coral, 4F5D75 slate
+private let cBackgroundLight       = Color(hex: 0xBFC0C0)   // warm gray
+private let cSurfaceLight          = Color(hex: 0xFFFFFF)   // white cards
+private let cSurfaceElevatedLight  = Color(hex: 0xF4F4F4)   // faintly warm off-white
+private let cInkLight              = Color(hex: 0x2D3142)   // charcoal
+private let cInkSubtleLight        = Color(hex: 0x4F5D75)   // slate
+private let cTextPrimaryLight      = Color(hex: 0x2D3142)   // charcoal
+private let cTextSecondaryLight    = Color(hex: 0x4F5D75)   // slate
+private let cTextOnPrimaryLight    = Color.white            // white on coral
+private let cPositiveLight         = Color(hex: 0x2E8B57)   // sea green (AA on warm gray)
+private let cNegativeLight          = Color(hex: 0xC0392B)   // red
+private let cSeparatorLight        = Color(hex: 0xA9A9AC)   // warm gray hairline
+private let cShadowLight           = Color(hex: 0x2D3142)   // charcoal shadow
 
-// Dark — pure black, OLED-friendly, white ink. Elevated surface lifted for
-// visible hierarchy against the flat surface (per WCAG contrast guidance).
-private let cBackgroundDark        = Color(hex: 0x000000)
-private let cSurfaceDark           = Color(hex: 0x0E0E0F)
-private let cSurfaceElevatedDark   = Color(hex: 0x1C1C1E)
-private let cInkDark              = Color(hex: 0xF5F5F7)
-private let cInkSubtleDark         = Color(hex: 0xC7C7CC)
-private let cTextPrimaryDark       = Color(hex: 0xF5F5F7)
-private let cTextSecondaryDark     = Color(hex: 0x8A8A8E)
-private let cTextOnPrimaryDark     = Color.black
-private let cPositiveDark          = Color(hex: 0x34C77B)
-private let cNegativeDark          = Color(hex: 0xFF5A4A)
-private let cSeparatorDark         = Color(hex: 0x2A2A2D)
+// Dark — deep charcoal background, lifted charcoal surface, warm gray text.
+// OLED-friendly while staying on-palette (no pure black, which felt cold
+// next to coral). Elevated surface lifted for visible hierarchy.
+private let cBackgroundDark        = Color(hex: 0x2D3142)   // charcoal
+private let cSurfaceDark           = Color(hex: 0x363B52)   // lifted charcoal
+private let cSurfaceElevatedDark   = Color(hex: 0x414763)   // further lifted
+private let cInkDark              = Color(hex: 0xF5F5F7)   // near-white
+private let cInkSubtleDark         = Color(hex: 0xBFC0C0)   // warm gray
+private let cTextPrimaryDark       = Color(hex: 0xF5F5F7)   // near-white
+private let cTextSecondaryDark     = Color(hex: 0xBFC0C0)   // warm gray
+private let cTextOnPrimaryDark     = Color.white            // white on coral
+private let cPositiveDark          = Color(hex: 0x34C77B)   // bright green
+private let cNegativeDark          = Color(hex: 0xFF6B5A)   // bright red
+private let cSeparatorDark         = Color(hex: 0x525A78)   // slate-tinted hairline
 private let cShadowDark            = Color.black
 
-// Accent — signature blue from the app icon (#012682 family)
-// Deep royal blue in light; brighter for contrast in dark.
-private let cAccentLight           = Color(hex: 0x012682)
-private let cAccentBrightLight     = Color(hex: 0x0040B0)
-private let cAccentSoftLight       = Color(hex: 0xC3D7F4)
-private let cAccentOnPrimaryLight  = Color.white
+// Accent — coral (#EF8354) from the brand palette. The signature color for
+// primary buttons, active tab indicators, selected segments, the chart line,
+// and active states. NOT used for price movement (that's positive/negative).
+private let cAccentLight           = Color(hex: 0xEF8354)   // coral
+private let cAccentBrightLight     = Color(hex: 0xF26B3A)   // brighter coral for gradient tops
+private let cAccentSoftLight       = Color(hex: 0xF7D9C9)   // pale coral tint
+private let cAccentOnPrimaryLight  = Color.white            // white on coral
 
-private let cAccentDark            = Color(hex: 0x3B6FE0)
-private let cAccentBrightDark      = Color(hex: 0x5586E8)
-private let cAccentSoftDark        = Color(hex: 0x1A2F60)
-private let cAccentOnPrimaryDark   = Color.white
+private let cAccentDark            = Color(hex: 0xEF8354)   // coral (same in dark for brand consistency)
+private let cAccentBrightDark      = Color(hex: 0xF29368)   // lighter coral for dark-mode gradient
+private let cAccentSoftDark        = Color(hex: 0x4A2A1E)   // deep coral-tinted charcoal
+private let cAccentOnPrimaryDark   = Color.white            // white on coral
