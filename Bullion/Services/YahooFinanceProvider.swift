@@ -58,20 +58,29 @@ final class YahooFinanceProvider: MarketDataProvider, @unchecked Sendable {
     // MARK: - Quote
 
     func quote(_ symbol: String) async throws -> Quote {
-        let chart = try await fetchChart(symbol: symbol, interval: "1d", range: "5d")
+        // Use a 1d chart so `chartPreviousClose` is the prior *session* close
+        // (yesterday), not the close from ~5 trading days ago. Day change is
+        // derived from `previousClose` in `Quote`, so this is what makes the
+        // "today's move" pill correct. `regularMarketPreviousClose` /
+        // `regularMarketOpen` are preferred when Yahoo exposes them.
+        let chart = try await fetchChart(symbol: symbol, interval: "1d", range: "1d")
         let meta = chart.meta
+        let last = meta.regularMarketPrice
+        guard let last, last > 0 else {
+            throw APIClient.APIError.invalidResponse
+        }
+        let timestamp = meta.regularMarketTime.map {
+            Date(timeIntervalSince1970: TimeInterval($0))
+        } ?? Date()
         return Quote(
             symbol: symbol,
-            last: meta.regularMarketPrice ?? 0,
-            // Yahoo's chart `meta` doesn't expose the session open; use the first
-            // candle's open from the 5d/1d series rather than mislabeling the
-            // previous close as the open.
-            open: chart.candles.last?.o,
-            previousClose: meta.chartPreviousClose,
+            last: last,
+            open: meta.regularMarketOpen ?? chart.candles.first?.o,
+            previousClose: meta.regularMarketPreviousClose ?? meta.chartPreviousClose,
             dayLow: meta.regularMarketDayLow,
             dayHigh: meta.regularMarketDayHigh,
             volume: meta.regularMarketVolume.map(Double.init),
-            timestamp: Date(timeIntervalSince1970: TimeInterval(meta.regularMarketTime ?? 0)),
+            timestamp: timestamp,
             isDelayed: false
         )
     }
@@ -251,6 +260,8 @@ final class YahooFinanceProvider: MarketDataProvider, @unchecked Sendable {
         let regularMarketDayHigh: Double?
         let regularMarketDayLow: Double?
         let regularMarketVolume: Int?
+        let regularMarketOpen: Double?
+        let regularMarketPreviousClose: Double?
         let chartPreviousClose: Double?
         let fiftyTwoWeekHigh: Double?
         let fiftyTwoWeekLow: Double?
@@ -274,6 +285,8 @@ final class YahooFinanceProvider: MarketDataProvider, @unchecked Sendable {
                         let regularMarketDayHigh: Double?
                         let regularMarketDayLow: Double?
                         let regularMarketVolume: Int?
+                        let regularMarketOpen: Double?
+                        let regularMarketPreviousClose: Double?
                         let chartPreviousClose: Double?
                         let fiftyTwoWeekHigh: Double?
                         let fiftyTwoWeekLow: Double?
@@ -324,6 +337,8 @@ final class YahooFinanceProvider: MarketDataProvider, @unchecked Sendable {
             regularMarketDayHigh: result.meta.regularMarketDayHigh,
             regularMarketDayLow: result.meta.regularMarketDayLow,
             regularMarketVolume: result.meta.regularMarketVolume,
+            regularMarketOpen: result.meta.regularMarketOpen,
+            regularMarketPreviousClose: result.meta.regularMarketPreviousClose,
             chartPreviousClose: result.meta.chartPreviousClose,
             fiftyTwoWeekHigh: result.meta.fiftyTwoWeekHigh,
             fiftyTwoWeekLow: result.meta.fiftyTwoWeekLow,

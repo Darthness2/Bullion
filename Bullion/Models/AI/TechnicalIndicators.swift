@@ -25,8 +25,15 @@ enum TechnicalIndicators {
         return ema
     }
 
-    // MARK: - RSI (Relative Strength Index, 14-period default)
+    // MARK: - RSI (Relative Strength Index, 14-period default, Wilder's smoothing)
 
+    /// RSI using Wilder's smoothing: seed the average gain/loss with a simple
+    /// SMA of the first `period` changes, then iteratively update each
+    /// subsequent change with `avg = (prevAvg*(period-1) + val)/period`. This
+    /// is the standard RSI formula used by every charting platform — the
+    /// previous implementation only used the first `period` changes and
+    /// discarded the rest, so the value reflected the oldest, not the most
+    /// recent, price action.
     static func rsi(closes: [Double], period: Int = 14) -> Double? {
         guard closes.count > period, period > 0 else { return nil }
         var gains: [Double] = []
@@ -36,8 +43,16 @@ enum TechnicalIndicators {
             gains.append(max(0, diff))
             losses.append(max(0, -diff))
         }
-        let avgGain = gains.prefix(period).reduce(0, +) / Double(period)
-        let avgLoss = losses.prefix(period).reduce(0, +) / Double(period)
+        // Seed with SMA of the first `period` changes.
+        var avgGain = gains.prefix(period).reduce(0, +) / Double(period)
+        var avgLoss = losses.prefix(period).reduce(0, +) / Double(period)
+        // Wilder's smoothing for the remaining changes.
+        for i in period..<gains.count {
+            avgGain = (avgGain * Double(period - 1) + gains[i]) / Double(period)
+            avgLoss = (avgLoss * Double(period - 1) + losses[i]) / Double(period)
+        }
+        // Perfectly flat series: neutral, not "overbought".
+        if avgGain == 0 && avgLoss == 0 { return 50 }
         guard avgLoss != 0 else { return 100 }
         let rs = avgGain / avgLoss
         return 100 - (100 / (1 + rs))

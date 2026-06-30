@@ -37,6 +37,55 @@ struct TechnicalIndicatorTests {
         #expect(TechnicalIndicators.rsi(closes: [1, 2, 3], period: 14) == nil)
     }
 
+    @Test("RSI is 100 for a purely rising series (all gains, no losses)")
+    func rsiAllGains() {
+        let rising = (0...20).map { Double($0) }  // 0,1,2,...,20
+        let r = TechnicalIndicators.rsi(closes: rising, period: 14)
+        #expect(r != nil)
+        #expect(abs((r ?? 0) - 100) < 0.001)
+    }
+
+    @Test("RSI is 0 for a purely falling series (all losses, no gains)")
+    func rsiAllLosses() {
+        let falling = (0...20).map { Double(20 - $0) }  // 20,19,...,0
+        let r = TechnicalIndicators.rsi(closes: falling, period: 14)
+        #expect(r != nil)
+        #expect(abs((r ?? 0) - 0) < 0.001)
+    }
+
+    @Test("RSI is 50 for a perfectly flat series (no change at all)")
+    func rsiFlatIsNeutral() {
+        let flat = Array(repeating: 100.0, count: 30)
+        let r = TechnicalIndicators.rsi(closes: flat, period: 14)
+        #expect(r != nil)
+        #expect(abs((r ?? 0) - 50) < 0.001)
+    }
+
+    @Test("RSI uses Wilder smoothing — value differs from naive SMA-only RSI")
+    func rsiWilderSmoothing() {
+        // A series where the first 14 changes are small/mixed but the last
+        // several changes are large and positive. Wilder smoothing should
+        // produce a value closer to 100 than the naive SMA-of-first-14 would.
+        let series: [Double] = [
+            // 15 points: 14 changes, mostly small up/down, then a strong rally
+            100, 101, 100, 101, 100, 101, 100, 101, 100, 101, 100, 101, 100, 101,
+            130, 140, 150
+        ]
+        let wilder = TechnicalIndicators.rsi(closes: series, period: 14)
+        #expect(wilder != nil)
+        // After the rally the smoothed avgGain >> avgLoss, so RSI should be
+        // high (well above 70), reflecting recent strength — which the old
+        // SMA-only implementation would miss entirely.
+        #expect((wilder ?? 0) > 70)
+    }
+
+    @Test("RSI handles empty and single-element arrays")
+    func rsiEdgeCases() {
+        #expect(TechnicalIndicators.rsi(closes: [], period: 14) == nil)
+        #expect(TechnicalIndicators.rsi(closes: [42.0], period: 14) == nil)
+        #expect(TechnicalIndicators.rsi(closes: [42.0], period: 0) == nil)
+    }
+
     @Test("MACD computes macd, signal, and histogram")
     func macdTest() {
         let m = TechnicalIndicators.macd(closes: closes)
