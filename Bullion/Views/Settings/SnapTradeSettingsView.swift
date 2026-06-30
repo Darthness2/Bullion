@@ -13,6 +13,8 @@ struct SnapTradeSettingsView: View {
     @State private var testResult: TestResult?
     @State private var testing = false
     @State private var confirmingClear = false
+    @State private var clientIdSaveTask: Task<Void, Never>?
+    @State private var consumerKeySaveTask: Task<Void, Never>?
 
     enum TestResult: Equatable {
         case success(String)
@@ -35,6 +37,13 @@ struct SnapTradeSettingsView: View {
         .background(Theme.Colors.background)
         .navigationTitle("Brokerage")
         .navigationBarTitleDisplayMode(.inline)
+        // Persist any pending debounced write when leaving the screen.
+        .onDisappear {
+            clientIdSaveTask?.cancel()
+            consumerKeySaveTask?.cancel()
+            SnapTradeKeyStore.clientId = clientId.trimmingCharacters(in: .whitespaces)
+            SnapTradeKeyStore.consumerKey = consumerKey.trimmingCharacters(in: .whitespaces)
+        }
     }
 
     // MARK: - Credentials
@@ -45,8 +54,8 @@ struct SnapTradeSettingsView: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .onChange(of: clientId) { _, v in
-                    SnapTradeKeyStore.clientId = v.trimmingCharacters(in: .whitespaces)
                     testResult = nil
+                    scheduleClientIdSave(v.trimmingCharacters(in: .whitespaces))
                 }
             HStack {
                 if showConsumerKey {
@@ -64,13 +73,35 @@ struct SnapTradeSettingsView: View {
                 }
             }
             .onChange(of: consumerKey) { _, v in
-                SnapTradeKeyStore.consumerKey = v.trimmingCharacters(in: .whitespaces)
                 testResult = nil
+                scheduleConsumerKeySave(v.trimmingCharacters(in: .whitespaces))
             }
         } header: {
             Text("SnapTrade Credentials")
         } footer: {
             Text("Get these from dashboard.snaptrade.com. Stored in the iOS Keychain and used only to call SnapTrade directly — no proxy server.")
+        }
+    }
+
+    /// Debounce Keychain writes so we don't hit the keychain (ms-scale, can
+    /// prompt for device passcode, burns battery) on every keystroke of a
+    /// 32+ character key. Writes ~0.5s after the last edit, or immediately on
+    /// `onDisappear` (above) if the user leaves mid-typing.
+    private func scheduleClientIdSave(_ value: String) {
+        clientIdSaveTask?.cancel()
+        clientIdSaveTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            SnapTradeKeyStore.clientId = value
+        }
+    }
+
+    private func scheduleConsumerKeySave(_ value: String) {
+        consumerKeySaveTask?.cancel()
+        consumerKeySaveTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            SnapTradeKeyStore.consumerKey = value
         }
     }
 

@@ -7,6 +7,12 @@ struct AISettingsView: View {
     @State private var testResult: TestResult?
     @State private var confirmingClear = false
     @State private var isTesting = false
+    // Local mirrors of the keys so the TextField can update smoothly without
+    // writing to the Keychain on every keystroke. Persisted (debounced) below.
+    @State private var anthropicKeyDraft: String = AISettingsStore().anthropicAPIKey
+    @State private var openAIKeyDraft: String = AISettingsStore().openAIAPIKey
+    @State private var anthropicSaveTask: Task<Void, Never>?
+    @State private var openAISaveTask: Task<Void, Never>?
 
     enum TestResult: Equatable {
         case success(String)
@@ -25,6 +31,13 @@ struct AISettingsView: View {
         .background(Theme.Colors.background)
         .navigationTitle("AI Research")
         .navigationBarTitleDisplayMode(.inline)
+        .onDisappear {
+            // Flush any pending debounced write when leaving the screen.
+            anthropicSaveTask?.cancel()
+            openAISaveTask?.cancel()
+            store.anthropicAPIKey = anthropicKeyDraft
+            store.openAIAPIKey = openAIKeyDraft
+        }
     }
 
     // MARK: - Provider
@@ -86,17 +99,11 @@ struct AISettingsView: View {
             Section {
                 HStack {
                     if showAnthropicKey {
-                        TextField("Anthropic API Key", text: Binding(
-                            get: { store.anthropicAPIKey },
-                            set: { store.anthropicAPIKey = $0 }
-                        ))
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
+                        TextField("Anthropic API Key", text: $anthropicKeyDraft)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
                     } else {
-                        SecureField("Anthropic API Key", text: Binding(
-                            get: { store.anthropicAPIKey },
-                            set: { store.anthropicAPIKey = $0 }
-                        ))
+                        SecureField("Anthropic API Key", text: $anthropicKeyDraft)
                     }
                     Button {
                         showAnthropicKey.toggle()
@@ -105,6 +112,7 @@ struct AISettingsView: View {
                             .foregroundColor(Theme.Colors.textSecondary)
                     }
                 }
+                .onChange(of: anthropicKeyDraft) { _, v in scheduleAnthropicSave(v) }
             } header: {
                 Text("Credentials")
             } footer: {
@@ -114,17 +122,11 @@ struct AISettingsView: View {
             Section {
                 HStack {
                     if showOpenAIKey {
-                        TextField("OpenAI API Key", text: Binding(
-                            get: { store.openAIAPIKey },
-                            set: { store.openAIAPIKey = $0 }
-                        ))
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
+                        TextField("OpenAI API Key", text: $openAIKeyDraft)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
                     } else {
-                        SecureField("OpenAI API Key", text: Binding(
-                            get: { store.openAIAPIKey },
-                            set: { store.openAIAPIKey = $0 }
-                        ))
+                        SecureField("OpenAI API Key", text: $openAIKeyDraft)
                     }
                     Button {
                         showOpenAIKey.toggle()
@@ -133,6 +135,7 @@ struct AISettingsView: View {
                             .foregroundColor(Theme.Colors.textSecondary)
                     }
                 }
+                .onChange(of: openAIKeyDraft) { _, v in scheduleOpenAISave(v) }
             } header: {
                 Text("Credentials")
             } footer: {
@@ -140,6 +143,28 @@ struct AISettingsView: View {
             }
         case .ollama:
             EmptyView()
+        }
+    }
+
+    /// Debounce Keychain writes so typing a 32+ character API key doesn't hit
+    /// the keychain (ms-scale, can prompt for device passcode, burns battery)
+    /// on every keystroke. Writes ~0.5s after the last edit, or immediately on
+    /// `onDisappear` (above) if the user leaves mid-typing.
+    private func scheduleAnthropicSave(_ value: String) {
+        anthropicSaveTask?.cancel()
+        anthropicSaveTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            store.anthropicAPIKey = value
+        }
+    }
+
+    private func scheduleOpenAISave(_ value: String) {
+        openAISaveTask?.cancel()
+        openAISaveTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            store.openAIAPIKey = value
         }
     }
 
@@ -200,6 +225,8 @@ struct AISettingsView: View {
                     Spacer()
                     Button("Clear", role: .destructive) {
                         store.clearKeys()
+                        anthropicKeyDraft = ""
+                        openAIKeyDraft = ""
                         testResult = nil
                         withAnimation(Theme.Animation.snappy) { confirmingClear = false }
                     }
