@@ -5,6 +5,7 @@ import SwiftUI
 /// user-friendly error with retry.
 struct ConnectBrokerageView: View {
     @Bindable var vm: PortfolioViewModel
+    @Environment(AppNav.self) private var appNav
     @State private var showingKeySetup = false
     @State private var hasKeys = SnapTradeKeyStore.hasPartnerCredentials
 
@@ -50,6 +51,22 @@ struct ConnectBrokerageView: View {
                 }
                 .appearAnimation(.rise, index: 1)
 
+                VStack(spacing: Theme.Metrics.spacingS) {
+                    BackendHealthView()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if !SnapTradeKeyStore.hasPartnerCredentials {
+                        PrimaryButton(
+                            title: "Add SnapTrade Keys",
+                            style: .outline,
+                            icon: "key"
+                        ) {
+                            appNav.selectedTab = .settings
+                        }
+                    }
+                }
+                .appearAnimation(.rise, index: 2)
+
                 PrimaryButton(
                     title: buttonTitle,
                     style: .primary,
@@ -65,7 +82,7 @@ struct ConnectBrokerageView: View {
                     }
                 }
                 .disabled(vm.isConnecting)
-                .appearAnimation(.rise, index: 2)
+                .appearAnimation(.rise, index: 3)
 
                 if !hasKeys {
                     Text("First time? You'll add your free SnapTrade client ID and consumer key — we'll show you where to get them.")

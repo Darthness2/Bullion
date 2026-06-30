@@ -41,16 +41,16 @@ enum PortfolioError: LocalizedError {
             return "Invalid Connection Portal URL."
         case .invalidResponse:
             return "Invalid response from SnapTrade."
-        case .httpError(let code, let body):
-            if code == 401 {
-                return "SnapTrade rejected the request (401). Double-check your client ID and consumer key in Settings → Brokerage."
+        case .httpError(let code, let detail):
+            if code == 401 || code == 403 {
+                return "SnapTrade rejected these credentials. Double-check your client ID and consumer key in Settings → Brokerage."
             }
             if code == 0 {
-                return body.isEmpty ? "The request could not be completed." : body
+                return detail.isEmpty ? "The request could not be completed." : detail
             }
-            return "SnapTrade error (HTTP \(code))."
-        case .decodingError:
-            return "Could not parse the SnapTrade response."
+            return detail.isEmpty ? "SnapTrade error (HTTP \(code))." : "SnapTrade error (HTTP \(code)): \(detail)"
+        case .decodingError(let error):
+            return "Could not parse the SnapTrade response: \(error.localizedDescription)"
         case .authenticationCancelled:
             return "Authentication was cancelled."
         case .networkUnreachable:

@@ -7,7 +7,7 @@ import CryptoKit
 /// `Signature` header that is the base64 HMAC-SHA256 of a canonical JSON object
 /// keyed by the partner consumer key:
 ///
-///     { "content": <body or null>, "path": "/api/v1/...", "query": "k=v&..." }
+///     { "content": <body or null>, "path": "/accounts/...", "query": "k=v&..." }
 ///
 /// The JSON is serialized compact with **sorted keys** (matching the reference
 /// Python `json.dumps(..., separators=(",", ":"), sort_keys=True)`), and the
@@ -34,7 +34,12 @@ enum SnapTradeSigner {
                                                      options: [.sortedKeys]) else {
             return nil
         }
-        let key = SymmetricKey(data: Data(consumerKey.utf8))
+        // Mirrors the official TypeScript SDK, which applies `encodeURI` to
+        // the consumer key before using it as the raw HMAC key.
+        var encodeURIAllowed = CharacterSet.urlQueryAllowed
+        encodeURIAllowed.insert(charactersIn: "#")
+        let encodedKey = consumerKey.addingPercentEncoding(withAllowedCharacters: encodeURIAllowed) ?? consumerKey
+        let key = SymmetricKey(data: Data(encodedKey.utf8))
         let code = HMAC<SHA256>.authenticationCode(for: data, using: key)
         return Data(code).base64EncodedString()
     }

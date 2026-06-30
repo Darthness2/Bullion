@@ -10,9 +10,14 @@ import AuthenticationServices
 final class DirectSnapTradeService: PortfolioService, @unchecked Sendable {
 
     private let baseHost = "https://api.snaptrade.com"
-    private let apiPrefix = "/api/v1"
     private let session: URLSession
     private let decoder: JSONDecoder
+    private let isoFormatter = ISO8601DateFormatter()
+    private let fractionalISOFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
 
     init(session: URLSession = .shared) {
         self.session = session
@@ -26,38 +31,52 @@ final class DirectSnapTradeService: PortfolioService, @unchecked Sendable {
     var isLinked: Bool {
         get async {
             guard SnapTradeKeyStore.isRegistered else { return false }
-            do { return try await !rawAccounts().isEmpty } catch { return false }
+            do { return try await !rawAccounts().isEmpty }
+            catch {
+                if error.isSnapTradeAuthFailure {
+                    SnapTradeKeyStore.clearRegistration()
+                }
+                return false
+            }
         }
     }
 
     func accounts() async throws -> [BrokerageAccount] {
-        try await rawAccounts().map { a in
-            BrokerageAccount(
-                id: a.id,
-                name: a.name ?? a.institutionName ?? "Account",
-                brokerage: a.institutionName ?? "Brokerage",
-                totalValue: a.balance?.total?.amount ?? 0,
-                currency: a.balance?.total?.currency ?? "USD",
-                lastSynced: Date(),
-                connectionStatus: .active
-            )
+        guard SnapTradeKeyStore.isRegistered else { return [] }
+        do {
+            return try await rawAccounts().map { a in
+                BrokerageAccount(
+                    id: a.id,
+                    name: a.name ?? a.institutionName ?? "Account",
+                    brokerage: a.institutionName ?? "Brokerage",
+                    totalValue: a.balance?.total?.amount ?? 0,
+                    currency: a.balance?.total?.currency ?? "USD",
+                    lastSynced: parseDate(a.syncStatus?.holdings?.lastSuccessfulSync) ?? Date(),
+                    connectionStatus: mapConnectionStatus(a)
+                )
+            }
+        } catch {
+            if error.isSnapTradeAuthFailure {
+                SnapTradeKeyStore.clearRegistration()
+                return []
+            }
+            throw error
         }
     }
 
     func holdings(accountId: String) async throws -> [Holding] {
-        let positions: [STPosition] = try await send(
-            "GET", "/accounts/\(accountId)/positions", authedUser: true
+        let response: STPositionsResponse = try await send(
+            "GET", "/accounts/\(percentEncodedPathComponent(accountId))/positions/all", authedUser: true
         )
-        return positions.map { p in
-            let units = p.units ?? 0
-            let price = p.price ?? 0
-            let sym = p.symbol?.symbol
-            let ticker = sym?.symbol ?? sym?.rawSymbol ?? "—"
+        return response.results.map { p in
+            let units = p.units?.value ?? 0
+            let price = p.price?.value ?? 0
+            let ticker = p.instrument.symbol ?? p.instrument.rawSymbol ?? p.instrument.rootSymbol ?? "—"
             return Holding(
                 symbol: ticker,
-                name: sym?.description ?? ticker,
+                name: p.instrument.description ?? ticker,
                 quantity: units,
-                avgCost: p.averagePurchasePrice,
+                avgCost: p.costBasis?.value,
                 marketValue: units * price,
                 dayChange: nil,
                 dayChangePercent: nil,
@@ -68,13 +87,14 @@ final class DirectSnapTradeService: PortfolioService, @unchecked Sendable {
 
     func transactions(accountId: String) async throws -> [Transaction] {
         let orders: [STOrder] = try await send(
-            "GET", "/accounts/\(accountId)/orders", authedUser: true
+            "GET", "/accounts/\(percentEncodedPathComponent(accountId))/orders", authedUser: true,
+            extraQuery: [("state", "all"), ("days", "90")]
         )
         return orders.map { o in
-            let sym = o.symbol?.symbol ?? o.universalSymbol
+            let sym = o.universalSymbol ?? o.symbol?.symbol
             let ticker = sym?.symbol ?? sym?.rawSymbol ?? ""
-            let qty = o.totalQuantity ?? o.filledQuantity
-            let price = o.executionPrice
+            let qty = o.totalQuantity?.value ?? o.filledQuantity?.value
+            let price = o.executionPrice?.value
             return Transaction(
                 id: o.brokerageOrderId ?? UUID().uuidString,
                 symbol: ticker,
@@ -91,21 +111,21 @@ final class DirectSnapTradeService: PortfolioService, @unchecked Sendable {
 
     func connectionPortalURL() async throws -> URL {
         try await registerIfNeeded()
-        // POST /snapTrade/login — userId/userSecret are query params; the portal
-        // URL comes back in the body. customRedirect routes back to our scheme.
-        let redirect = "\(Secrets.snaptradeCallbackScheme)://snaptrade-callback"
-        let resp: STLoginResponse = try await send(
-            "POST", "/snapTrade/login", authedUser: true,
-            extraQuery: [("customRedirect", redirect)]
-        )
-        guard let urlString = resp.redirectURI, let url = URL(string: urlString) else {
-            throw PortfolioError.invalidPortalURL
+        do {
+            return try await loginPortalURL()
+        } catch {
+            // A saved user secret can become invalid after dashboard resets or
+            // manual test cleanup. Re-register once and retry the short-lived
+            // portal URL before surfacing the error.
+            guard error.isSnapTradeAuthFailure else { throw error }
+            SnapTradeKeyStore.clearRegistration()
+            try await registerIfNeeded()
+            return try await loginPortalURL()
         }
-        return url
     }
 
     func openConnectionPortal(url: URL) async throws {
-        let session = STWebAuthSession(url: url, scheme: Secrets.snaptradeCallbackScheme)
+        let session = await STWebAuthSession(url: url, scheme: Secrets.snaptradeCallbackScheme)
         try await session.start()
     }
 
@@ -132,6 +152,15 @@ final class DirectSnapTradeService: PortfolioService, @unchecked Sendable {
             throw PortfolioError.notConfigured("Add your SnapTrade client ID and consumer key in Settings → Brokerage to connect.")
         }
         if SnapTradeKeyStore.isRegistered { return }
+        do {
+            try await registerNewUser()
+        } catch PortfolioError.httpError(let code, _) where code == 409 {
+            SnapTradeKeyStore.clearRegistration()
+            try await registerNewUser()
+        }
+    }
+
+    private func registerNewUser() async throws {
         let userId = SnapTradeKeyStore.userId ?? "bullion-\(UUID().uuidString.prefix(8))"
         SnapTradeKeyStore.userId = userId
         let resp: STRegisterResponse = try await send(
@@ -143,6 +172,29 @@ final class DirectSnapTradeService: PortfolioService, @unchecked Sendable {
         }
         SnapTradeKeyStore.userId = resp.userId ?? userId
         SnapTradeKeyStore.userSecret = secret
+    }
+
+    private func loginPortalURL() async throws -> URL {
+        let redirect = "\(Secrets.snaptradeCallbackScheme)://snaptrade-callback"
+        let resp: STLoginResponse = try await send(
+            "POST", "/snapTrade/login", authedUser: true,
+            body: [
+                "customRedirect": redirect,
+                "connectionType": "read",
+                "showCloseButton": true,
+                "connectionPortalVersion": "v4"
+            ]
+        )
+        guard resp.encryptedMessageData == nil else {
+            throw PortfolioError.httpError(
+                0,
+                "SnapTrade response encryption is enabled for this client. Disable encrypted responses for this personal direct integration, or add a backend that can decrypt them."
+            )
+        }
+        guard let urlString = resp.redirectURI, let url = URL(string: urlString) else {
+            throw PortfolioError.invalidPortalURL
+        }
+        return url
     }
 
     /// Validates partner credentials without needing a registered user
@@ -164,7 +216,17 @@ final class DirectSnapTradeService: PortfolioService, @unchecked Sendable {
 
     private func parseDate(_ s: String?) -> Date? {
         guard let s, !s.isEmpty else { return nil }
-        return ISO8601DateFormatter().date(from: s)
+        return fractionalISOFormatter.date(from: s) ?? isoFormatter.date(from: s)
+    }
+
+    private func mapConnectionStatus(_ account: STAccount) -> ConnectionStatus {
+        account.status == "unavailable" ? .needsReconnect : .active
+    }
+
+    private func percentEncodedPathComponent(_ s: String) -> String {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove("/")
+        return s.addingPercentEncoding(withAllowedCharacters: allowed) ?? s
     }
 
     /// RFC3986-unreserved percent-encoding, applied identically to the signed
@@ -175,7 +237,10 @@ final class DirectSnapTradeService: PortfolioService, @unchecked Sendable {
         return s.addingPercentEncoding(withAllowedCharacters: allowed) ?? s
     }
 
-    /// Builds the canonical (key-sorted) query string shared by signing and the URL.
+    /// Builds the query string shared by signing and the URL. Ordering mirrors
+    /// the official SDK: partner params first, then user params, then endpoint
+    /// params. The signature only works if this string is byte-identical to
+    /// the request URL's query.
     private func canonicalQuery(authedUser: Bool, extra: [(String, String)]) throws -> String {
         guard let clientId = SnapTradeKeyStore.clientId, !clientId.isEmpty else {
             throw PortfolioError.notConfigured("SnapTrade client ID not set. Add it in Settings → Brokerage.")
@@ -191,8 +256,6 @@ final class DirectSnapTradeService: PortfolioService, @unchecked Sendable {
             items.append(("userSecret", usec))
         }
         items.append(contentsOf: extra)
-        // Sort by key for a deterministic, canonical ordering.
-        items.sort { $0.0 < $1.0 }
         return items.map { "\($0.0)=\(percentEncode($0.1))" }.joined(separator: "&")
     }
 
@@ -203,13 +266,12 @@ final class DirectSnapTradeService: PortfolioService, @unchecked Sendable {
         guard let consumerKey = SnapTradeKeyStore.consumerKey, !consumerKey.isEmpty else {
             throw PortfolioError.notConfigured("SnapTrade consumer key not set. Add it in Settings → Brokerage.")
         }
-        let fullPath = apiPrefix + path
         let query = try canonicalQuery(authedUser: authedUser, extra: extraQuery)
         guard let signature = SnapTradeSigner.signature(consumerKey: consumerKey,
-                                                        content: body, path: fullPath, query: query) else {
+                                                        content: body, path: path, query: query) else {
             throw PortfolioError.notConfigured("Could not sign the SnapTrade request. Re-check your consumer key.")
         }
-        guard let url = URL(string: "\(baseHost)\(fullPath)?\(query)") else {
+        guard let url = URL(string: "\(baseHost)\(path)?\(query)") else {
             throw PortfolioError.invalidResponse
         }
         var req = URLRequest(url: url)
@@ -217,7 +279,9 @@ final class DirectSnapTradeService: PortfolioService, @unchecked Sendable {
         req.setValue(signature, forHTTPHeaderField: "Signature")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let body { req.httpBody = try JSONSerialization.data(withJSONObject: body) }
+        if let body {
+            req.httpBody = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
+        }
         return req
     }
 
@@ -238,9 +302,19 @@ final class DirectSnapTradeService: PortfolioService, @unchecked Sendable {
         }
         guard let http = response as? HTTPURLResponse else { throw PortfolioError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else {
-            throw PortfolioError.httpError(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+            throw PortfolioError.httpError(http.statusCode, snapTradeErrorMessage(from: data))
         }
         return data
+    }
+
+    private func snapTradeErrorMessage(from data: Data) -> String {
+        guard !data.isEmpty else { return "" }
+        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            for key in ["detail", "message", "error", "errorMessage"] {
+                if let value = object[key] as? String, !value.isEmpty { return value }
+            }
+        }
+        return String(data: data, encoding: .utf8) ?? ""
     }
 
     private func send<T: Decodable>(_ method: String, _ path: String,
@@ -276,18 +350,30 @@ private struct STRegisterResponse: Decodable {
 
 private struct STLoginResponse: Decodable {
     let redirectURI: String?
+    let encryptedMessageData: [String: String]?
 }
 
 private struct STAccount: Decodable {
     let id: String
     let name: String?
-    let number: String?
     let institutionName: String?
     let brokerageAuthorization: String?
     let balance: STBalanceHolder?
+    let syncStatus: STSyncStatus?
+    let status: String?
 
     struct STBalanceHolder: Decodable { let total: STAmount? }
     struct STAmount: Decodable { let amount: Double?; let currency: String? }
+}
+
+private struct STSyncStatus: Decodable {
+    let holdings: STStatus?
+    let transactions: STStatus?
+
+    struct STStatus: Decodable {
+        let initialSyncCompleted: Bool?
+        let lastSuccessfulSync: String?
+    }
 }
 
 private struct STSymbol: Decodable {
@@ -300,23 +386,63 @@ private struct STSymbolHolder: Decodable {
     let symbol: STSymbol?
 }
 
+private struct STPositionsResponse: Decodable {
+    let results: [STPosition]
+}
+
 private struct STPosition: Decodable {
-    let units: Double?
-    let price: Double?
-    let averagePurchasePrice: Double?
-    let symbol: STSymbolHolder?
+    let instrument: STInstrument
+    let units: STDecimal?
+    let price: STDecimal?
+    let costBasis: STDecimal?
+}
+
+private struct STInstrument: Decodable {
+    let kind: String?
+    let symbol: String?
+    let rawSymbol: String?
+    let rootSymbol: String?
+    let description: String?
 }
 
 private struct STOrder: Decodable {
     let brokerageOrderId: String?
     let action: String?
-    let totalQuantity: Double?
-    let filledQuantity: Double?
-    let executionPrice: Double?
+    let totalQuantity: STDecimal?
+    let filledQuantity: STDecimal?
+    let executionPrice: STDecimal?
     let timeExecuted: String?
     let timePlaced: String?
     let symbol: STSymbolHolder?
     let universalSymbol: STSymbol?
+}
+
+private struct STDecimal: Decodable {
+    let value: Double
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let double = try? container.decode(Double.self) {
+            value = double
+            return
+        }
+        if let string = try? container.decode(String.self) {
+            let cleaned = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let double = Double(cleaned) {
+                value = double
+                return
+            }
+        }
+        value = 0
+    }
+}
+
+private extension Error {
+    var isSnapTradeAuthFailure: Bool {
+        guard let error = self as? PortfolioError,
+              case PortfolioError.httpError(let code, _) = error else { return false }
+        return code == 401 || code == 403
+    }
 }
 
 // MARK: - ASWebAuthenticationSession wrapper
