@@ -10,6 +10,10 @@ final class PortfolioViewModel {
     var isRefreshing = false
     var connectError: String?
     var partialSync = false
+    /// Portfolio-level analytics (beta vs SPY, Sharpe, max drawdown,
+    /// diversification, concentration). Computed on demand via
+    /// `recomputeAnalytics(provider:)`; nil until first successful compute.
+    var analytics: PortfolioAnalytics?
     /// Base currency for portfolio totals. Defaults to USD; each account's
     /// holdings are converted to this currency before aggregation so a USD
     /// account + a EUR account sum correctly instead of naive-addition.
@@ -236,5 +240,44 @@ final class PortfolioViewModel {
         holdingsByAccount = updated
         convertedCache = [:]
         await recomputeAggregates()
+    }
+
+    // MARK: - Portfolio analytics (beta, Sharpe, max drawdown, concentration)
+
+    /// Compute beta-vs-SPY, annualized Sharpe, max drawdown, diversification,
+    /// and largest-holding weight from 3-month candle history. Fetches SPY as
+    /// the benchmark and each distinct holding's candles concurrently. Safe
+    /// to call after `load()`; leaves `analytics` nil when there isn't enough
+    /// data (the UI renders "—" honestly).
+    @MainActor
+    func recomputeAnalytics(provider: any MarketDataProvider) async {
+        let holdings = allHoldings
+        guard !holdings.isEmpty else { analytics = nil; return }
+        // Weights by market value, normalized to sum to 1.
+        let totalMV = holdings.map(\.marketValue).reduce(0, +)
+        guard totalMV > 0 else { analytics = nil; return }
+        let distinctSymbols = Array(Set(holdings.map(\.symbol)))
+        // Aggregate weight per symbol across accounts.
+        var weightsBySymbol: [String: Double] = [:]
+        for h in holdings {
+            weightsBySymbol[h.symbol, default: 0] += h.marketValue / totalMV
+        }
+        async let benchmark = provider.candles("SPY", range: .threeM)
+        // Fetch each holding's 3M candles concurrently.
+        let holdingsCandles: [String: [Candle]] = await withTaskGroup(of: (String, [Candle]).self) { group in
+            for sym in distinctSymbols {
+                group.addTask { (sym, (try? await provider.candles(sym, range: .threeM)) ?? []) }
+            }
+            var out: [String: [Candle]] = [:]
+            for await (sym, candles) in group { out[sym] = candles }
+            return out
+        }
+        let bench = (try? await benchmark) ?? []
+        guard !Task.isCancelled else { return }
+        analytics = PortfolioAnalyticsEngine.compute(
+            holdingsCandles: holdingsCandles,
+            weights: weightsBySymbol,
+            benchmark: bench
+        )
     }
 }

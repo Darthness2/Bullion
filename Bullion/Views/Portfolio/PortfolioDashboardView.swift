@@ -80,6 +80,8 @@ struct PortfolioDashboardView: View {
                         .appearAnimation(.blur, index: 1)
                     statsBar
                         .appearAnimation(.rise, index: 2)
+                    analyticsCard
+                        .appearAnimation(.rise, index: 2)
                     holdingsList
                         .appearAnimation(.rise, index: 3)
                     if accounts.count > 1 {
@@ -106,6 +108,12 @@ struct PortfolioDashboardView: View {
             // Enrich day change from live Yahoo quotes once holdings load.
             if case .loaded = vm.accounts, vm.allHoldings.contains(where: { $0.dayChange == nil }) {
                 await vm.enrichDayChange(provider: env.marketProvider)
+            }
+            // Compute portfolio analytics (beta, Sharpe, max drawdown) once
+            // holdings are available. Cheap relative to the LLM features and
+            // surfaces the metrics a serious investor expects.
+            if case .loaded = vm.accounts, vm.analytics == nil {
+                await vm.recomputeAnalytics(provider: env.marketProvider)
             }
         }
     }
@@ -199,6 +207,49 @@ struct PortfolioDashboardView: View {
         HStack(spacing: 12) {
             statTile(label: "Total Value", value: vm.totalValue, icon: "dollarsign.circle")
             statTile(label: "Unrealized P/L", value: vm.totalUnrealizedPL, icon: "chart.bar.fill", isPL: true)
+        }
+    }
+
+    // MARK: - Analytics card (beta, Sharpe, max drawdown, concentration)
+
+    @ViewBuilder
+    private var analyticsCard: some View {
+        if let a = vm.analytics {
+            ThemedCard {
+                VStack(alignment: .leading, spacing: Theme.Metrics.spacing) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chart.xyaxis.line")
+                            .font(.system(size: 12))
+                            .foregroundColor(Theme.Colors.accent)
+                        Text("Portfolio Analytics")
+                            .font(Typography.caption2)
+                            .foregroundColor(Theme.Colors.textSecondary)
+                        Spacer()
+                    }
+                    HStack(spacing: Theme.Metrics.spacingL) {
+                        analyticsTile(label: "Beta vs SPY", value: a.beta.map { String(format: "%.2f", $0) })
+                        analyticsTile(label: "Sharpe", value: a.sharpe.map { String(format: "%.2f", $0) })
+                        analyticsTile(label: "Max Drawdown", value: a.maxDrawdown.map { String(format: "-%.1f%%", $0 * 100) })
+                    }
+                    HStack(spacing: Theme.Metrics.spacingL) {
+                        analyticsTile(label: "Holdings", value: "\(a.diversification)")
+                        analyticsTile(label: "Top Holding", value: a.largestHoldingWeight.map { String(format: "%.0f%%", $0 * 100) })
+                        Spacer()
+                    }
+                }
+            }
+        }
+    }
+
+    private func analyticsTile(label: String, value: String?) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(Typography.caption2)
+                .foregroundColor(Theme.Colors.textSecondary)
+            Text(value ?? "—")
+                .font(Typography.subheadline)
+                .monospacedDigit()
+                .foregroundColor(Theme.Colors.textPrimary)
         }
     }
 
