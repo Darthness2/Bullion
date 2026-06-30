@@ -9,6 +9,16 @@ protocol AIProvider: Sendable {
     var requiresAPIKey: Bool { get }
     var models: [String] { get }
     func analyze(context: MarketContext, model: String, apiKey: String?) async throws -> AIAnalysis
+    /// Free-form follow-up chat. Returns the assistant's plain-text reply.
+    /// Used for "ask a question about this analysis" multi-turn. Default
+    /// implementation throws so providers opt in.
+    func chat(systemPrompt: String, userPrompt: String, model: String, apiKey: String?) async throws -> String
+}
+
+extension AIProvider {
+    func chat(systemPrompt: String, userPrompt: String, model: String, apiKey: String?) async throws -> String {
+        throw AIError.invalidResponse("This provider does not support follow-up chat.")
+    }
 }
 
 enum AIProviderType: String, CaseIterable, Identifiable, Sendable {

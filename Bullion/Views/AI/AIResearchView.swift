@@ -6,6 +6,7 @@ struct AIResearchView: View {
     @Environment(\.appEnv) private var env
     @Environment(AISettingsStore.self) private var aiSettings
     @State private var vm: AIResearchViewModel?
+    @State private var followUpDraft: String = ""
 
     var body: some View {
         ThemedCard {
@@ -14,15 +15,27 @@ struct AIResearchView: View {
                     SectionHeader(title: "AI Research")
                     Spacer()
                     if aiSettings.isConfigured {
-                        Button {
-                            Haptics.light()
-                            Task { await vm?.analyze(instrument: instrument) }
-                        } label: {
-                            Image(systemName: "sparkles")
-                                .foregroundColor(Theme.Colors.textPrimary)
-                                .symbolEffect(.bounce, value: vm?.isAnalyzing == true)
+                        if vm?.isAnalyzing == true {
+                            Button {
+                                vm?.cancel()
+                            } label: {
+                                Image(systemName: "stop.circle.fill")
+                                    .foregroundColor(Theme.Colors.negative)
+                            }
+                            .accessibilityLabel("Cancel analysis")
+                        } else {
+                            Button {
+                                Haptics.light()
+                                Task { await vm?.analyze(instrument: instrument) }
+                            } label: {
+                                Image(systemName: "sparkles")
+                                    .foregroundColor(Theme.Colors.textPrimary)
+                                    .symbolEffect(.bounce, value: vm?.isAnalyzing == true)
+                            }
+                            .disabled(vm?.isAnalyzing == true)
+                            .accessibilityLabel("Run AI analysis")
+                            .sensoryFeedback(.impact(weight: .light), trigger: vm?.isAnalyzing)
                         }
-                        .sensoryFeedback(.impact(weight: .light), trigger: vm?.isAnalyzing)
                     }
                     NavigationLink {
                         AISettingsView()
@@ -47,7 +60,10 @@ struct AIResearchView: View {
                             loadingState
                                 .transition(.opacity)
                         case .loaded(let analysis):
-                            analysisContent(analysis)
+                            VStack(alignment: .leading, spacing: Theme.Metrics.spacing) {
+                                analysisContent(analysis)
+                                followUpSection
+                            }
                                 .transition(.opacity.combined(with: .scale(scale: 0.98)))
                         case .error(let msg):
                             ErrorView(message: msg, retry: {
@@ -68,6 +84,7 @@ struct AIResearchView: View {
                 )
             }
         }
+        .onDisappear { vm?.cancel() }
     }
 
     private var unconfiguredState: some View {
@@ -110,6 +127,84 @@ struct AIResearchView: View {
             .frame(maxWidth: .infinity)
         }
         .padding(.vertical, Theme.Metrics.spacingS)
+    }
+
+    // MARK: - Follow-up chat (multi-turn)
+
+    private var followUpSection: some View {
+        VStack(alignment: .leading, spacing: Theme.Metrics.spacingS) {
+            Divider().overlay(Theme.Colors.separator)
+            SectionHeader(title: "Ask a follow-up")
+            ForEach(vm?.chat ?? []) { msg in
+                chatBubble(msg)
+            }
+            if vm?.isAskingFollowUp == true {
+                HStack(spacing: 6) {
+                    ThinkingDots().frame(width: 36, height: 12)
+                    Text("Thinking…")
+                        .font(Typography.caption)
+                        .foregroundColor(Theme.Colors.textSecondary)
+                }
+            }
+            if let err = vm?.followUpError {
+                Text(err)
+                    .font(Typography.caption)
+                    .foregroundColor(Theme.Colors.negative)
+            }
+            HStack(spacing: Theme.Metrics.spacingS) {
+                TextField("Ask about \(instrument.symbol)…", text: $followUpDraft, axis: .vertical)
+                    .font(Typography.body)
+                    .textFieldStyle(.plain)
+                    .lineLimit(1...4)
+                    .padding(10)
+                    .background(Theme.Colors.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Metrics.cornerRadiusSmall, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Metrics.cornerRadiusSmall, style: .continuous)
+                            .stroke(Theme.Colors.separator, lineWidth: Theme.Metrics.hairline)
+                    )
+                Button {
+                    let q = followUpDraft
+                    followUpDraft = ""
+                    Task { await vm?.askFollowUp(q, instrument: instrument) }
+                } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 28))
+                        .foregroundColor(followUpDraft.trimmingCharacters(in: .whitespaces).isEmpty
+                                         || vm?.isAskingFollowUp == true
+                                         ? Theme.Colors.textSecondary : Theme.Colors.accent)
+                }
+                .disabled(followUpDraft.trimmingCharacters(in: .whitespaces).isEmpty
+                          || vm?.isAskingFollowUp == true)
+                .accessibilityLabel("Send follow-up")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func bubbleBackground(for role: AIResearchViewModel.ChatMessage.Role) -> some View {
+        if role == .user {
+            Theme.Gradients.accentGradient
+        } else {
+            Theme.Colors.surface
+        }
+    }
+
+    private func chatBubble(_ msg: AIResearchViewModel.ChatMessage) -> some View {
+        HStack {
+            if msg.role == .user { Spacer(minLength: 0) }
+            Text(msg.text)
+                .font(Typography.callout)
+                .foregroundColor(msg.role == .user ? Theme.Colors.textOnPrimary : Theme.Colors.textPrimary)
+                .padding(10)
+                .background(bubbleBackground(for: msg.role))
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Metrics.cornerRadiusSmall, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Metrics.cornerRadiusSmall, style: .continuous)
+                        .stroke(Theme.Colors.separator.opacity(msg.role == .user ? 0 : 1), lineWidth: Theme.Metrics.hairline)
+                )
+            if msg.role == .assistant { Spacer(minLength: 0) }
+        }
     }
 
     private var loadingState: some View {

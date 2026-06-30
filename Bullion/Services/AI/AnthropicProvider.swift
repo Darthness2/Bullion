@@ -53,4 +53,40 @@ struct AnthropicProvider: AIProvider {
         }
         return try AIPromptBuilder.parseAnalysis(text)
     }
+
+    func chat(systemPrompt: String, userPrompt: String, model: String, apiKey: String?) async throws -> String {
+        guard let apiKey, !apiKey.isEmpty else { throw AIError.noAPIKey }
+        let requestBody: [String: Any] = [
+            "model": model,
+            "max_tokens": 1024,
+            "system": systemPrompt,
+            "messages": [
+                ["role": "user", "content": userPrompt]
+            ]
+        ]
+        let data = try JSONSerialization.data(withJSONObject: requestBody)
+        var req = URLRequest(url: baseURL)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue(apiKey, forHTTPHeaderField: apiKeyHeader)
+        req.setValue(apiVersion, forHTTPHeaderField: versionHeader)
+        req.timeoutInterval = 90
+        req.httpBody = data
+        let (responseData, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse else {
+            throw AIError.invalidResponse("No HTTP response.")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw AIError.httpError(http.statusCode, String(data: responseData, encoding: .utf8) ?? "Unknown error")
+        }
+        struct AnthropicResponse: Codable {
+            struct Content: Codable { let type: String; let text: String? }
+            let content: [Content]
+        }
+        let decoded = try JSONDecoder().decode(AnthropicResponse.self, from: responseData)
+        guard let text = decoded.content.first(where: { $0.type == "text" })?.text else {
+            throw AIError.invalidResponse("No text in Anthropic response.")
+        }
+        return text
+    }
 }

@@ -96,4 +96,63 @@ final class AIService: @unchecked Sendable {
 
         return try await aiProvider.analyze(context: context, model: model, apiKey: apiKey)
     }
+
+    /// Free-form follow-up question about the most recent analysis. Reuses
+    /// cached market data when available so it's cheap; falls back to a
+    /// fresh context gather if needed. Returns the assistant's plain-text
+    /// reply (no JSON parsing — follow-ups are conversational).
+    func followUp(
+        question: String,
+        instrument: Instrument,
+        provider: any MarketDataProvider,
+        priorAnalysis: AIAnalysis?
+    ) async throws -> String {
+        guard settings.isConfigured else { throw AIError.noAPIKey }
+        // Best-effort context: gather fresh (cheap, cached) so the answer is
+        // grounded in current data even if the initial analysis is stale.
+        let context: MarketContext
+        do {
+            async let quoteTask = provider.quote(instrument.symbol)
+            async let statsTask = provider.stats(instrument.symbol)
+            async let candlesTask = provider.candles(instrument.symbol, range: .threeM)
+            async let newsTask = provider.news(instrument.symbol)
+            context = buildContext(
+                instrument: instrument,
+                quote: try? await quoteTask,
+                stats: try? await statsTask,
+                candles: (try? await candlesTask) ?? [],
+                news: (try? await newsTask) ?? []
+            )
+        } catch {
+            context = buildContext(
+                instrument: instrument, quote: nil, stats: nil,
+                candles: [], news: []
+            )
+        }
+        let systemPrompt = """
+        \(AIPromptBuilder.systemPrompt)
+
+        You previously produced this structured analysis of \(instrument.symbol):
+        Recommendation: \(priorAnalysis?.recommendation.rawValue ?? "n/a")
+        Confidence: \(priorAnalysis?.confidence.rawValue ?? "n/a")
+        Summary: \(priorAnalysis?.summary ?? "n/a")
+        Bullish: \(priorAnalysis?.bullishFactors.joined(separator: "; ") ?? "n/a")
+        Bearish: \(priorAnalysis?.bearishFactors.joined(separator: "; ") ?? "n/a")
+
+        The user is asking a follow-up question. Answer concisely in plain
+        text (no JSON), grounded in the market context. If the answer isn't
+        knowable from the data, say so honestly. For informational purposes
+        only — not investment advice.
+        """
+        let userPrompt = """
+        \(AIPromptBuilder.userPrompt(for: context))
+
+        Follow-up question: \(question)
+        """
+        let aiProvider = settings.makeProvider()
+        return try await aiProvider.chat(
+            systemPrompt: systemPrompt, userPrompt: userPrompt,
+            model: settings.selectedModel, apiKey: settings.currentAPIKey()
+        )
+    }
 }

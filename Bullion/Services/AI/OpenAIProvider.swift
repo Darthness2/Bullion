@@ -53,4 +53,43 @@ struct OpenAIProvider: AIProvider {
         }
         return try AIPromptBuilder.parseAnalysis(text)
     }
+
+    func chat(systemPrompt: String, userPrompt: String, model: String, apiKey: String?) async throws -> String {
+        guard let apiKey, !apiKey.isEmpty else { throw AIError.noAPIKey }
+        let requestBody: [String: Any] = [
+            "model": model,
+            "max_tokens": 1024,
+            "temperature": 0.3,
+            "messages": [
+                ["role": "system", "content": systemPrompt],
+                ["role": "user", "content": userPrompt]
+            ]
+        ]
+        let data = try JSONSerialization.data(withJSONObject: requestBody)
+        var req = URLRequest(url: baseURL)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        req.timeoutInterval = 90
+        req.httpBody = data
+        let (responseData, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse else {
+            throw AIError.invalidResponse("No HTTP response.")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw AIError.httpError(http.statusCode, String(data: responseData, encoding: .utf8) ?? "Unknown error")
+        }
+        struct OpenAIResponse: Codable {
+            struct Choice: Codable {
+                struct Message: Codable { let role: String; let content: String }
+                let message: Message
+            }
+            let choices: [Choice]
+        }
+        let decoded = try JSONDecoder().decode(OpenAIResponse.self, from: responseData)
+        guard let text = decoded.choices.first?.message.content else {
+            throw AIError.invalidResponse("No content in OpenAI response.")
+        }
+        return text
+    }
 }
