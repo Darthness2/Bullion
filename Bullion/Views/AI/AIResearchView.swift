@@ -261,15 +261,41 @@ struct AIResearchView: View {
 
     private func recommendationHeader(_ analysis: AIAnalysis) -> some View {
         HStack(spacing: Theme.Metrics.spacing) {
-            Text(analysis.recommendation.rawValue)
-                .font(Typography.title2)
-                .foregroundColor(recommendationColor(analysis.recommendation))
+            // Color-coded pill background for the recommendation — emerald
+            // tint for buy, red tint for sell, slate for hold. Much more
+            // scannable than bare colored text.
+            HStack(spacing: 6) {
+                Image(systemName: recommendationIcon(analysis.recommendation))
+                    .font(.system(size: 13, weight: .bold))
+                Text(analysis.recommendation.rawValue)
+                    .font(Typography.title2)
+            }
+            .foregroundColor(recommendationColor(analysis.recommendation))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(
+                Capsule().fill(recommendationColor(analysis.recommendation).opacity(0.14))
+            )
+            .overlay(
+                Capsule().stroke(recommendationColor(analysis.recommendation).opacity(0.3),
+                                 lineWidth: Theme.Metrics.hairline)
+            )
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
                 Text("Confidence: \(analysis.confidence.rawValue)")
                     .font(Typography.caption)
                     .foregroundColor(Theme.Colors.textSecondary)
             }
+        }
+    }
+
+    private func recommendationIcon(_ rec: AIAnalysis.Recommendation) -> String {
+        switch rec {
+        case .strongBuy: return "arrow.up.circle.fill"
+        case .buy:       return "arrow.up"
+        case .hold:      return "equal.circle.fill"
+        case .sell:      return "arrow.down"
+        case .strongSell: return "arrow.down.circle.fill"
         }
     }
 
@@ -294,7 +320,7 @@ struct AIResearchView: View {
     private func recommendationColor(_ rec: AIAnalysis.Recommendation) -> Color {
         switch rec {
         case .strongBuy, .buy: return Theme.Colors.positive
-        case .hold:            return Theme.Colors.textPrimary
+        case .hold:            return Theme.Colors.textSecondary
         case .sell, .strongSell: return Theme.Colors.negative
         }
     }

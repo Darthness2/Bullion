@@ -28,10 +28,19 @@ struct OnboardingView: View {
     var body: some View {
         ZStack {
             Theme.Colors.background.ignoresSafeArea()
-            RadialGradient(
-                colors: [Theme.Colors.accent.opacity(0.06), .clear],
-                center: .top, startRadius: 10, endRadius: 400
-            )
+            // Emerald mesh background — a layered radial gradient that gives
+            // the onboarding a premium, ambient feel (replaces the flat single
+            // radial). Two soft emerald blooms at opposite corners.
+            ZStack {
+                RadialGradient(
+                    colors: [Theme.Colors.accent.opacity(0.14), .clear],
+                    center: .topLeading, startRadius: 10, endRadius: 360
+                )
+                RadialGradient(
+                    colors: [Theme.Colors.accent.opacity(0.10), .clear],
+                    center: .bottomTrailing, startRadius: 10, endRadius: 400
+                )
+            }
             .ignoresSafeArea()
 
             VStack(spacing: 0) {
@@ -45,7 +54,7 @@ struct OnboardingView: View {
                 .indexViewStyle(.page(backgroundDisplayMode: .interactive))
 
                 VStack(spacing: Theme.Metrics.spacing) {
-                    pageDots
+                    progressBar
                     primaryButton
                     if page == pages.count - 1 {
                         Button {
@@ -98,15 +107,20 @@ struct OnboardingView: View {
         }
     }
 
-    private var pageDots: some View {
-        HStack(spacing: 6) {
-            ForEach(pages.indices, id: \.self) { i in
+    /// Progress bar replacing the page dots — an emerald fill that grows
+    /// across the pages, feels more 2026 than a row of capsules.
+    private var progressBar: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
                 Capsule()
-                    .fill(i == page ? Theme.Colors.accent : Theme.Colors.textPrimary.opacity(0.2))
-                    .frame(width: i == page ? 20 : 7, height: 7)
-                    .animation(Theme.Animation.interactive, value: page)
+                    .fill(Theme.Colors.separator.opacity(0.5))
+                Capsule()
+                    .fill(Theme.Gradients.accentGradient)
+                    .frame(width: geo.size.width * CGFloat(page + 1) / CGFloat(pages.count))
             }
         }
+        .frame(height: 4)
+        .animation(Theme.Animation.interactive, value: page)
     }
 
     private var primaryButton: some View {

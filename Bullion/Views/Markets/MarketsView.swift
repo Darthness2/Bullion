@@ -50,10 +50,11 @@ struct MarketsView: View {
             .background(
                 ZStack {
                     Theme.Colors.background.ignoresSafeArea()
-                    // Subtle monochrome wash at top
+                    // Emerald wash at top — the signature brand bloom behind
+                    // the "Bullion" title. Faint, ambient.
                     RadialGradient(
-                        colors: [Theme.Colors.textPrimary.opacity(0.04), .clear],
-                        center: .top, startRadius: 10, endRadius: 320
+                        colors: [Theme.Colors.accent.opacity(0.08), .clear],
+                        center: .top, startRadius: 10, endRadius: 340
                     )
                     .ignoresSafeArea()
                 }

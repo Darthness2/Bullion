@@ -144,11 +144,19 @@ struct PortfolioDashboardView: View {
                 .font(Typography.eyebrow)
                 .tracking(1.2)
                 .foregroundColor(Theme.Colors.textSecondary)
+            // Emerald radial glow behind the hero number — the signature
+            // premium depth cue. Placed behind the PriceText, large blur.
             PriceText(value: vm.totalValue, font: Typography.hero)
                 .monospacedDigit()
                 .foregroundColor(Theme.Colors.textPrimary)
                 .scaleEffect(pulse ? 1.02 : 1.0)
                 .animation(Theme.Animation.snappy, value: pulse)
+                .background(
+                    Theme.Gradients.heroGlowGradient
+                        .frame(width: 280, height: 140)
+                        .blur(radius: 24)
+                        .allowsHitTesting(false)
+                )
             if vm.hasMultiCurrency {
                 Text("Converted to \(vm.baseCurrency) · live FX")
                     .font(Typography.caption2)
