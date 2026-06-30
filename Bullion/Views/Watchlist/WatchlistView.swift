@@ -51,9 +51,7 @@ struct WatchlistView: View {
                 .staggeredAppear(index: idx)
             }
             .onMove { source, dest in watchlistVM.move(from: source, to: dest) }
-            .onDelete { indexSet in
-                for i in indexSet { watchlistVM.remove(at: i) }
-            }
+            .onDelete { indexSet in watchlistVM.remove(atOffsets: indexSet) }
         }
         .listStyle(.plain)
         .background(Theme.Colors.background)

@@ -13,6 +13,7 @@ final class WatchlistViewModel {
     private let provider: any MarketDataProvider
     private let modelContext: ModelContext?
     private let storageKey = "bullion.watchlist.symbols"
+    private let migrationKey = "bullion.watchlist.migratedToSwiftData"
     private var hasMigrated = false
 
     init(provider: any MarketDataProvider, modelContext: ModelContext? = nil) {
@@ -68,6 +69,35 @@ final class WatchlistViewModel {
         }
     }
 
+    /// Remove multiple rows at once. SwiftUI delivers an `IndexSet` from
+    /// `.onDelete` whose indices are relative to the *current* array; removing
+    /// them one at a time in ascending order shifts every higher index down
+    /// and makes subsequent `remove(at:)` calls hit the wrong row (or no-op via
+    /// the bounds guard). `remove(atOffsets:)` removes them in one atomic
+    /// mutation so all indices resolve against the original array.
+    func remove(atOffsets offsets: IndexSet) {
+        let removedSymbols = offsets.compactMap { items.indices.contains($0) ? items[$0].symbol : nil }
+        items.remove(atOffsets: offsets)
+        for symbol in removedSymbols { quotes.removeValue(forKey: symbol) }
+        guard let ctx = modelContext, !removedSymbols.isEmpty else { return }
+        let targets = removedSymbols
+        if let entities = try? ctx.fetch(FetchDescriptor<WatchlistItem>(
+            predicate: #Predicate { targets.contains($0.symbol) }
+        )) {
+            for entity in entities { ctx.delete(entity) }
+            // Re-persist the order of the remaining items in one pass.
+            for (i, instrument) in items.enumerated() {
+                let target = instrument.symbol
+                if let entity = try? ctx.fetch(FetchDescriptor<WatchlistItem>(
+                    predicate: #Predicate { $0.symbol == target }
+                )).first {
+                    entity.order = i
+                }
+            }
+            save(ctx)
+        }
+    }
+
     func move(from source: IndexSet, to destination: Int) {
         items.move(fromOffsets: source, toOffset: destination)
         // Re-persist order.
@@ -113,10 +143,13 @@ final class WatchlistViewModel {
                 ))
                 if !entities.isEmpty {
                     items = entities.map(\.instrument)
+                    hasMigrated = true
+                    UserDefaults.standard.set(true, forKey: migrationKey)
                     return
                 }
                 // No SwiftData items — try migrating from UserDefaults.
-                if !hasMigrated, let data = UserDefaults.standard.data(forKey: storageKey),
+                if !hasMigrated, !UserDefaults.standard.bool(forKey: migrationKey),
+                   let data = UserDefaults.standard.data(forKey: storageKey),
                    let decoded = try? JSONDecoder().decode([Instrument].self, from: data) {
                     hasMigrated = true
                     items = decoded
@@ -127,8 +160,14 @@ final class WatchlistViewModel {
                             underlying: inst.underlying, order: i
                         ))
                     }
-                    save(ctx)
-                    UserDefaults.standard.removeObject(forKey: storageKey)
+                    // Only destroy the UserDefaults backup once the SwiftData
+                    // save is confirmed — otherwise a failed save (schema
+                    // mismatch, disk pressure) would lose the watchlist
+                    // entirely on the next launch.
+                    if save(ctx) {
+                        UserDefaults.standard.removeObject(forKey: storageKey)
+                        UserDefaults.standard.set(true, forKey: migrationKey)
+                    }
                 }
             } catch {
                 // Fall back to UserDefaults-only.
@@ -145,12 +184,17 @@ final class WatchlistViewModel {
         items = decoded
     }
 
-    private func save(_ ctx: ModelContext) {
+    @discardableResult
+    private func save(_ ctx: ModelContext) -> Bool {
         do {
             try ctx.save()
+            return true
         } catch {
-            // Non-fatal: in-memory state is still correct.
+            // Non-fatal: in-memory state is still correct, but the caller now
+            // knows the persistence failed (return false) so it can avoid
+            // destroying any fallback backup.
             print("WatchlistViewModel: failed to save: \(error)")
+            return false
         }
     }
 }
