@@ -16,7 +16,10 @@ struct PriceText: View {
                 .font(font)
                 .monospacedDigit()
                 .foregroundColor(color ?? Theme.Colors.textPrimary)
-                .contentTransition(.numericText(countsDown: false))
+                // countsDown: true so DECREASING values roll downward — a price
+                // drop should visually descend, not ascend. (Previously
+                // countsDown: false made every change animate up, misleading.)
+                .contentTransition(.numericText(countsDown: true))
                 .animation(Theme.Animation.interactive, value: value)
         } else {
             Text("—")

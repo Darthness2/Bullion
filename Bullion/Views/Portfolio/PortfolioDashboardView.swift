@@ -104,6 +104,7 @@ struct PortfolioDashboardView: View {
             }
         )
         .refreshable { await vm.refresh() }
+        .tint(Theme.Colors.accent)   // emerald pull-to-refresh control
         .task(id: vm.accounts) {
             // Enrich day change from live Yahoo quotes once holdings load.
             if case .loaded = vm.accounts, vm.allHoldings.contains(where: { $0.dayChange == nil }) {

@@ -60,6 +60,7 @@ struct MarketsView: View {
                 }
             )
             .refreshable { await vm.refresh() }
+            .tint(Theme.Colors.accent)   // emerald pull-to-refresh control
             .task {
                 let interval = SettingsViewModel.RefreshInterval(
                     rawValue: UserDefaults.standard.integer(forKey: "refreshInterval")

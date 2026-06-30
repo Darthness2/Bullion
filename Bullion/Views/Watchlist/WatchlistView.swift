@@ -57,6 +57,7 @@ struct WatchlistView: View {
         .background(Theme.Colors.background)
         .scrollContentBackground(.hidden)
         .refreshable { await watchlistVM.refreshQuotes() }
+        .tint(Theme.Colors.accent)   // emerald pull-to-refresh control
         .toolbar {
             EditButton()
         }

@@ -2,8 +2,10 @@ import SwiftUI
 
 // MARK: - Price flash
 
-/// Briefly flashes the background green or red with a glow when the
-/// bound value changes, giving a live price-flash effect.
+/// Briefly flashes the background green or red with a soft emerald-tinted
+/// edge glow when the bound value changes, giving a live price-flash effect.
+/// The fill uses the semantic positive/negative colors; the edge glow is a
+/// subtle emerald-tinted halo so the flash feels alive without being garish.
 struct PriceFlashModifier: ViewModifier {
     let value: Double?
     @State private var oldValue: Double?
@@ -18,6 +20,10 @@ struct PriceFlashModifier: ViewModifier {
                     .opacity(flashOpacity)
                     .allowsHitTesting(false)
             )
+            // Emerald-tinted edge glow on flash — a soft colored shadow that
+            // reads as "this just ticked" beyond the flat background fill.
+            .shadow(color: flashColor.opacity(flashOpacity * 0.7),
+                    radius: 6, x: 0, y: 0)
             .onChange(of: value) { _, newValue in
                 guard let newValue, let oldValue, oldValue != newValue else { return }
                 flashColor = newValue > oldValue ? Theme.Colors.positive : Theme.Colors.negative
