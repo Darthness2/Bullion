@@ -38,6 +38,12 @@ struct RootView: View {
                         .tabItem { Label("Settings", systemImage: "gearshape") }
                         .tag(AppNav.Tab.settings.rawValue)
                 }
+                // On iPad, use the sidebar tab style so the five tabs become a
+                // persistent sidebar (regular size class) instead of a cramped
+                // bottom bar — the phone-width layout was leaving vast empty
+                // space on iPad landscape. Falls back to the bottom bar on
+                // compact widths (iPhone) automatically.
+                .tabViewStyle(.sidebarAdaptable)
                 .tint(Theme.Colors.accent)
                 .environment(watchlistVM)
             }
