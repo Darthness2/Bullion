@@ -140,10 +140,12 @@ struct PortfolioDashboardView: View {
 
     private var heroSection: some View {
         VStack(spacing: Theme.Metrics.spacingS) {
-            Text("Portfolio Value")
+            Text("PORTFOLIO VALUE")
                 .font(Typography.eyebrow)
+                .tracking(1.2)
                 .foregroundColor(Theme.Colors.textSecondary)
             PriceText(value: vm.totalValue, font: Typography.hero)
+                .monospacedDigit()
                 .foregroundColor(Theme.Colors.textPrimary)
                 .scaleEffect(pulse ? 1.02 : 1.0)
                 .animation(Theme.Animation.snappy, value: pulse)

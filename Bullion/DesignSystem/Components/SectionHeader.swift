@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Section title with a solid monochrome accent bar and optional trailing action.
+/// Section title with a solid emerald accent bar and optional trailing action.
 struct SectionHeader: View {
     let title: String
     var actionTitle: String? = nil
@@ -8,11 +8,12 @@ struct SectionHeader: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            // Accent bar (signature blue from app icon)
+            // Emerald accent bar — decorative, hidden from VoiceOver.
             RoundedRectangle(cornerRadius: 2, style: .continuous)
                 .fill(Theme.Gradients.accentGradient)
                 .frame(width: 3, height: 16)
                 .transition(.scale.combined(with: .opacity))
+                .accessibilityHidden(true)
 
             Text(title)
                 .font(Typography.headline)

@@ -97,17 +97,22 @@ struct PriceChartView: View {
                 }
                 if let prevClose = previousClose {
                     RuleMark(y: .value("Prev Close", prevClose))
-                        .foregroundStyle(Theme.Colors.textSecondary.opacity(0.4))
+                        .foregroundStyle(Theme.Colors.accent.opacity(0.35))
                         .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
                         .annotation(position: .top, alignment: .leading) {
                             Text("Prev Close \(NumberFormatting.price(prevClose))")
                                 .font(Typography.chartAxis)
-                                .foregroundColor(Theme.Colors.textSecondary)
+                                .foregroundColor(Theme.Colors.accent)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(
+                                    Capsule().fill(Theme.Colors.accent.opacity(0.12))
+                                )
                         }
                 }
                 if let selected = selectedCandle {
                     RuleMark(x: .value("Time", selected.t))
-                        .foregroundStyle(Theme.Colors.textSecondary.opacity(0.4))
+                        .foregroundStyle(Theme.Colors.accent.opacity(0.35))
                         .lineStyle(StrokeStyle(lineWidth: 1))
                     PointMark(
                         x: .value("Time", selected.t),
@@ -210,10 +215,14 @@ struct PriceChartView: View {
     }
 
     private func crosshairLabel(_ candle: Candle) -> some View {
+        // "You are here" chip — emerald-accented so the current-price moment
+        // pops against the chart. Price in emerald, time in secondary, on a
+        // surface card with an emerald-tinted border.
         VStack(spacing: 2) {
             Text(NumberFormatting.price(candle.c))
                 .font(Typography.chartCross)
-                .foregroundColor(Theme.Colors.textPrimary)
+                .monospacedDigit()
+                .foregroundColor(Theme.Colors.accent)
             Text(candle.t.asOfTimeText)
                 .font(Typography.chartMicro)
                 .foregroundColor(Theme.Colors.textSecondary)
@@ -223,9 +232,9 @@ struct PriceChartView: View {
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Theme.Colors.separator, lineWidth: Theme.Metrics.hairline)
+                .stroke(Theme.Colors.accent.opacity(0.4), lineWidth: Theme.Metrics.hairline)
         )
-        .shadow(color: Theme.Colors.shadow.opacity(0.2), radius: 8, y: 2)
+        .shadow(color: Theme.Colors.accentShadow, radius: 8, y: 2)
         .transition(.scale(scale: 0.9, anchor: .top).combined(with: .opacity))
     }
 
