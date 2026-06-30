@@ -3,10 +3,12 @@ import SwiftUI
 struct InstrumentDetailView: View {
     let instrument: Instrument
     @Environment(\.appEnv) private var env
+    @Environment(\.modelContext) private var modelContext
     @Environment(WatchlistViewModel.self) private var watchlistVM
     @State private var vm: InstrumentDetailViewModel?
     @State private var showSMA20 = false
     @State private var showBollinger = false
+    @State private var showingAlertSheet = false
     @Namespace private var rangeNamespace
     @Namespace private var heroNamespace
 
@@ -352,7 +354,18 @@ struct InstrumentDetailView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            Button {
+                showingAlertSheet = true
+            } label: {
+                Image(systemName: "bell.badge")
+                    .foregroundColor(Theme.Colors.textPrimary)
+            }
+            .accessibilityLabel("Create price alert")
+            .popover(isPresented: $showingAlertSheet) {
+                PriceAlertSheet(instrument: instrument, currentPrice: vm?.quote.value?.last)
+                    .presentationDetents([.medium])
+            }
             let isWatched = vm?.isWatched == true
             Button {
                 vm?.toggleWatchlist()

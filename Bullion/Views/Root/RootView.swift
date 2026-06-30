@@ -4,6 +4,7 @@ import SwiftData
 struct RootView: View {
     @Environment(\.appEnv) private var env
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(AppNav.self) private var appNav
     @Environment(ConnectivityMonitor.self) private var connectivity
     @State private var watchlistVM: WatchlistViewModel?
@@ -39,6 +40,19 @@ struct RootView: View {
                 }
                 .tint(Theme.Colors.accent)
                 .environment(watchlistVM)
+            }
+            .onChange(of: scenePhase) { _, phase in
+                // Check price alerts whenever the app returns to the
+                // foreground — the cheapest backend-less way to deliver
+                // "your stock crossed X" notifications. Local notifications
+                // only; no push tokens.
+                if phase == .active {
+                    Task { @MainActor in
+                        await AlertService.shared.checkAlerts(
+                            provider: env.marketProvider, modelContext: modelContext
+                        )
+                    }
+                }
             }
         } else {
             ZStack {

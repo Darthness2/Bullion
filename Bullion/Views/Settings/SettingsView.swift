@@ -115,6 +115,11 @@ struct SettingsView: View {
     private var advancedSection: some View {
         Section("Advanced") {
             NavigationLink {
+                AlertsView()
+            } label: {
+                Label("Price Alerts", systemImage: "bell.badge")
+            }
+            NavigationLink {
                 SnapTradeSettingsView()
             } label: {
                 Label("Brokerage (SnapTrade)", systemImage: "building.columns")

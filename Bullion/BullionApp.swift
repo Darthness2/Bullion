@@ -26,7 +26,7 @@ struct BullionApp: App {
                     .preferredColorScheme(preferredScheme)
             }
         }
-        .modelContainer(for: WatchlistItem.self)
+        .modelContainer(for: [WatchlistItem.self, PriceAlert.self])
     }
 
     private var preferredScheme: ColorScheme? {
