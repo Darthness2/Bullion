@@ -2,14 +2,19 @@ import SwiftUI
 
 // MARK: - Theme
 
-/// Warm editorial theme built on a five-color palette:
-///   2D3142 — charcoal (dark backgrounds, primary ink in light)
-///   BFC0C0 — warm gray (light background, secondary text in dark)
-///   FFFFFF — white (cards, surfaces)
-///   EF8354 — coral (signature accent: buttons, tabs, charts, active states)
-///   4F5D75 — slate (secondary text, structure)
-/// Green/red remain reserved for price movement and P/L only.
-/// Supports Light (warm gray + white cards) and Dark (deep charcoal).
+/// Premium fintech "ink + emerald" theme. Deep emerald accent on near-black
+/// ink — the look of a modernized trading terminal. Money/trust association
+/// without being clinical.
+///
+///   Ink        #0B0F14 (light text) / #0B0F14 (dark bg)  — the base
+///   Off-white  #F6F7F8 (light bg)   / #E6EDF3 (dark text) — the inverse
+///   Emerald    #0E7C5A (light)      / #22C98B (dark)      — signature accent
+///   Slate      #5B6770 (light)      / #8B97A3 (dark)      — secondary text
+///   Electric   #3B82F6                                    — secondary chart/infow
+///
+/// Positive/negative (#17C390 / #FF6B5A) stay *visually distinct* from the
+/// brand emerald so P/L never blurs into brand chrome.
+/// Supports Light (off-white + white cards) and Dark (near-black, OLED-friendly).
 enum Theme {
     enum Colors {
         // Backgrounds — pure black in dark, soft gray in light
@@ -131,19 +136,20 @@ enum Theme {
         )
     }
 
-    // MARK: - Allocation palette (coral / slate / charcoal from the brand palette)
+    // MARK: - Allocation palette (emerald → slate → ink)
 
     /// Shades cycled across holding slices — adaptive per mode, drawn from the
-    /// five-color brand palette (coral, slate, charcoal) rather than blue.
+    /// ink+emerald palette. The donut reads as a gradient from emerald
+    /// (largest holding) through slate to ink, reinforcing brand identity.
     static let monochromeScale: [Color] = [
-        adaptive(light: Color(hex: 0xEF8354), dark: Color(hex: 0xEF8354)),
-        adaptive(light: Color(hex: 0x4F5D75), dark: Color(hex: 0x6B7A92)),
-        adaptive(light: Color(hex: 0x2D3142), dark: Color(hex: 0xBFC0C0)),
-        adaptive(light: Color(hex: 0xC46A3E), dark: Color(hex: 0xF2A37A)),
-        adaptive(light: Color(hex: 0x3B475C), dark: Color(hex: 0x8E9AB0)),
-        adaptive(light: Color(hex: 0x5C6478), dark: Color(hex: 0xA8B0C0)),
-        adaptive(light: Color(hex: 0x8088A0), dark: Color(hex: 0x6E7686)),
-        adaptive(light: Color(hex: 0xBFC0C0), dark: Color(hex: 0x4F5D75)),
+        adaptive(light: Color(hex: 0x0E7C5A), dark: Color(hex: 0x22C98B)),
+        adaptive(light: Color(hex: 0x147D6B), dark: Color(hex: 0x3BD49A)),
+        adaptive(light: Color(hex: 0x4F5D75), dark: Color(hex: 0x8B97A3)),
+        adaptive(light: Color(hex: 0x3B82F6), dark: Color(hex: 0x60A5FA)),
+        adaptive(light: Color(hex: 0x2D6E55), dark: Color(hex: 0x1FA874)),
+        adaptive(light: Color(hex: 0x5B6770), dark: Color(hex: 0x6E7B88)),
+        adaptive(light: Color(hex: 0x8B97A3), dark: Color(hex: 0x4A5563)),
+        adaptive(light: Color(hex: 0xB6C2CC), dark: Color(hex: 0x2E3640)),
     ]
 }
 
@@ -166,48 +172,51 @@ extension Color {
     }
 }
 
-// MARK: - Palette — Coral / Slate / Charcoal (5-color brand palette)
+// MARK: - Palette — Ink + Emerald
 
-// Light — warm gray background, white cards, charcoal ink, slate secondary.
-//   2D3142 charcoal, BFC0C0 warm gray, FFFFFF white, EF8354 coral, 4F5D75 slate
-private let cBackgroundLight       = Color(hex: 0xBFC0C0)   // warm gray
+// Light — off-white background, white cards, ink text, emerald accent.
+//   #F6F7F8 off-white bg, #FFFFFF white cards, #0B0F14 ink, #0E7C5A emerald,
+//   #5B6770 slate secondary. Warm but cool-leaning — a serious finance feel.
+private let cBackgroundLight       = Color(hex: 0xF6F7F8)   // off-white
 private let cSurfaceLight          = Color(hex: 0xFFFFFF)   // white cards
-private let cSurfaceElevatedLight  = Color(hex: 0xF4F4F4)   // faintly warm off-white
-private let cInkLight              = Color(hex: 0x2D3142)   // charcoal
-private let cInkSubtleLight        = Color(hex: 0x4F5D75)   // slate
-private let cTextPrimaryLight      = Color(hex: 0x2D3142)   // charcoal
-private let cTextSecondaryLight    = Color(hex: 0x4F5D75)   // slate
-private let cTextOnPrimaryLight    = Color.white            // white on coral
-private let cPositiveLight         = Color(hex: 0x2E8B57)   // sea green (AA on warm gray)
-private let cNegativeLight          = Color(hex: 0xC0392B)   // red
-private let cSeparatorLight        = Color(hex: 0xA9A9AC)   // warm gray hairline
-private let cShadowLight           = Color(hex: 0x2D3142)   // charcoal shadow
+private let cSurfaceElevatedLight  = Color(hex: 0xFCFDFE)   // faint cool off-white
+private let cInkLight              = Color(hex: 0x0B0F14)   // ink
+private let cInkSubtleLight        = Color(hex: 0x2D3640)   // lifted ink
+private let cTextPrimaryLight      = Color(hex: 0x0B0F14)   // ink
+private let cTextSecondaryLight    = Color(hex: 0x5B6770)   // slate
+private let cTextOnPrimaryLight    = Color.white            // white on emerald
+// P/L stays visually distinct from the brand emerald — brighter, more saturated,
+// so "did I make money?" never blurs into "is this a brand button?".
+private let cPositiveLight         = Color(hex: 0x17A36A)   // bright finance green
+private let cNegativeLight         = Color(hex: 0xE5484D)   // bright finance red
+private let cSeparatorLight        = Color(hex: 0xDDE2E8)   // cool gray hairline
+private let cShadowLight           = Color(hex: 0x0B0F14)   // ink shadow
 
-// Dark — deep charcoal background, lifted charcoal surface, warm gray text.
-// OLED-friendly while staying on-palette (no pure black, which felt cold
-// next to coral). Elevated surface lifted for visible hierarchy.
-private let cBackgroundDark        = Color(hex: 0x2D3142)   // charcoal
-private let cSurfaceDark           = Color(hex: 0x363B52)   // lifted charcoal
-private let cSurfaceElevatedDark   = Color(hex: 0x414763)   // further lifted
-private let cInkDark              = Color(hex: 0xF5F5F7)   // near-white
-private let cInkSubtleDark         = Color(hex: 0xBFC0C0)   // warm gray
-private let cTextPrimaryDark       = Color(hex: 0xF5F5F7)   // near-white
-private let cTextSecondaryDark     = Color(hex: 0xBFC0C0)   // warm gray
-private let cTextOnPrimaryDark     = Color.white            // white on coral
-private let cPositiveDark          = Color(hex: 0x34C77B)   // bright green
+// Dark — near-black ink background with a faint blue undertone (more "terminal"
+// than pure #000), lifted ink surface, near-white text, bright emerald accent.
+// OLED-friendly. Elevated surface lifted for visible hierarchy.
+private let cBackgroundDark        = Color(hex: 0x0B0F14)   // near-black ink
+private let cSurfaceDark           = Color(hex: 0x11171F)   // lifted ink
+private let cSurfaceElevatedDark   = Color(hex: 0x161B22)   // further lifted
+private let cInkDark              = Color(hex: 0xE6EDF3)   // near-white
+private let cInkSubtleDark         = Color(hex: 0xB6C2CC)   // cool gray
+private let cTextPrimaryDark       = Color(hex: 0xE6EDF3)   // near-white
+private let cTextSecondaryDark     = Color(hex: 0x8B97A3)   // slate
+private let cTextOnPrimaryDark     = Color(hex: 0x04130D)   // deep emerald-black on bright emerald
+private let cPositiveDark          = Color(hex: 0x22C98B)   // bright emerald-green
 private let cNegativeDark          = Color(hex: 0xFF6B5A)   // bright red
-private let cSeparatorDark         = Color(hex: 0x525A78)   // slate-tinted hairline
+private let cSeparatorDark         = Color(hex: 0x1F2A37)   // ink-tinted hairline
 private let cShadowDark            = Color.black
 
-// Accent — coral (#EF8354) from the brand palette. The signature color for
-// primary buttons, active tab indicators, selected segments, the chart line,
-// and active states. NOT used for price movement (that's positive/negative).
-private let cAccentLight           = Color(hex: 0xEF8354)   // coral
-private let cAccentBrightLight     = Color(hex: 0xF26B3A)   // brighter coral for gradient tops
-private let cAccentSoftLight       = Color(hex: 0xF7D9C9)   // pale coral tint
-private let cAccentOnPrimaryLight  = Color.white            // white on coral
+// Accent — deep emerald in light (#0E7C5A), bright emerald in dark (#22C98B).
+// The signature color for primary buttons, active tab indicators, selected
+// segments, the chart line, and active states. Distinct from P/L green.
+private let cAccentLight           = Color(hex: 0x0E7C5A)   // deep emerald
+private let cAccentBrightLight     = Color(hex: 0x13946E)   // brighter emerald for gradient tops
+private let cAccentSoftLight       = Color(hex: 0xD6F0E5)   // pale emerald tint
+private let cAccentOnPrimaryLight  = Color.white            // white on emerald
 
-private let cAccentDark            = Color(hex: 0xEF8354)   // coral (same in dark for brand consistency)
-private let cAccentBrightDark      = Color(hex: 0xF29368)   // lighter coral for dark-mode gradient
-private let cAccentSoftDark        = Color(hex: 0x4A2A1E)   // deep coral-tinted charcoal
-private let cAccentOnPrimaryDark   = Color.white            // white on coral
+private let cAccentDark            = Color(hex: 0x22C98B)   // bright emerald (pops on near-black)
+private let cAccentBrightDark      = Color(hex: 0x3BD49A)   // lighter emerald for dark gradient
+private let cAccentSoftDark        = Color(hex: 0x0E2A22)   // deep emerald-tinted ink
+private let cAccentOnPrimaryDark   = Color(hex: 0x04130D)   // deep emerald-black on bright emerald
