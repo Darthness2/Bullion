@@ -167,4 +167,91 @@ struct TechnicalIndicatorTests {
         #expect(analysis.recommendation == .hold)
         #expect(analysis.bearishFactors == ["Uncertainty"])
     }
+
+    @Test("Parse tolerates case-insensitive enum values")
+    func parseTolerantEnumCase() throws {
+        let json = """
+        {
+          "recommendation": "buy",
+          "confidence": "HIGH",
+          "summary": "x",
+          "bullishFactors": [],
+          "bearishFactors": [],
+          "technicalOutlook": "Up",
+          "newsSentiment": "Positive",
+          "riskLevel": "very high",
+          "timeHorizon": "Medium-term (1-3 months)"
+        }
+        """
+        let a = try AIPromptBuilder.parseAnalysis(json)
+        #expect(a.recommendation == .buy)
+        #expect(a.confidence == .high)
+        #expect(a.riskLevel == .veryHigh)
+    }
+
+    @Test("Parse tolerates trailing whitespace in enum values")
+    func parseTolerantEnumWhitespace() throws {
+        let json = """
+        {
+          "recommendation": "Hold ",
+          "confidence": "Medium ",
+          "summary": "x",
+          "bullishFactors": [],
+          "bearishFactors": [],
+          "technicalOutlook": "Side",
+          "newsSentiment": "Neutral",
+          "riskLevel": "Moderate ",
+          "timeHorizon": "Long-term (3+ months)"
+        }
+        """
+        let a = try AIPromptBuilder.parseAnalysis(json)
+        #expect(a.recommendation == .hold)
+        #expect(a.confidence == .medium)
+        #expect(a.riskLevel == .moderate)
+        #expect(a.timeHorizon == .longTerm)
+    }
+
+    @Test("Parse maps synonyms (Accumulate, Underperform) to canonical enums")
+    func parseSynonyms() throws {
+        let json = """
+        {
+          "recommendation": "Accumulate",
+          "confidence": "moderate",
+          "summary": "x",
+          "bullishFactors": [],
+          "bearishFactors": [],
+          "technicalOutlook": "Up",
+          "newsSentiment": "Neutral",
+          "riskLevel": "Low",
+          "timeHorizon": "Short-term"
+        }
+        """
+        let a = try AIPromptBuilder.parseAnalysis(json)
+        #expect(a.recommendation == .buy)
+        let sellJson = json.replacingOccurrences(of: "Accumulate", with: "Underperform")
+        let a2 = try AIPromptBuilder.parseAnalysis(sellJson)
+        #expect(a2.recommendation == .sell)
+    }
+
+    @Test("Parse defaults unknown recommendation to Hold rather than throwing")
+    func parseUnknownEnumDefaults() throws {
+        let json = """
+        {
+          "recommendation": "Wait and See",
+          "confidence": "Meh",
+          "summary": "x",
+          "bullishFactors": [],
+          "bearishFactors": [],
+          "technicalOutlook": "Up",
+          "newsSentiment": "Neutral",
+          "riskLevel": "Unknown",
+          "timeHorizon": "Whenever"
+        }
+        """
+        let a = try AIPromptBuilder.parseAnalysis(json)
+        #expect(a.recommendation == .hold)
+        #expect(a.confidence == .medium)
+        #expect(a.riskLevel == .moderate)
+        #expect(a.timeHorizon == .shortTerm)
+    }
 }

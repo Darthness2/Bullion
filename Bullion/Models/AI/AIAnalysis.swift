@@ -29,12 +29,43 @@ struct AIAnalysis: Codable, Hashable, Sendable {
             case .strongSell: return "negative"
             }
         }
+
+        /// Tolerant decoder: matches the exact raw values case-insensitively
+        /// (so "buy", "BUY", "Strong buy" all work) and maps a few common
+        /// synonyms models emit ("Accumulate" -> buy, "Underperform" -> sell,
+        /// "Outperform" -> buy, "Neutral" -> hold). Unknown strings default
+        /// to `.hold` rather than throwing — a single deviating label must
+        /// not sink the whole analysis.
+        init(from decoder: Decoder) throws {
+            let raw = (try decoder.singleValueContainer().decode(String.self))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let normalized = raw.lowercased()
+            switch normalized {
+            case "strong buy", "strong-buy", "strongbuy": self = .strongBuy
+            case "buy", "accumulate", "outperform", "overweight", "add": self = .buy
+            case "hold", "neutral", "equal-weight", "market perform", "n/a": self = .hold
+            case "sell", "underperform", "underweight", "reduce": self = .sell
+            case "strong sell", "strong-sell", "strongsell": self = .strongSell
+            default: self = .hold
+            }
+        }
     }
 
     enum Confidence: String, Codable, CaseIterable, Sendable {
         case low = "Low"
         case medium = "Medium"
         case high = "High"
+
+        init(from decoder: Decoder) throws {
+            let raw = (try decoder.singleValueContainer().decode(String.self))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            switch raw.lowercased() {
+            case "low":  self = .low
+            case "medium", "moderate": self = .medium
+            case "high", "very high", "very-high": self = .high
+            default:     self = .medium
+            }
+        }
     }
 
     enum RiskLevel: String, Codable, CaseIterable, Sendable {
@@ -42,12 +73,37 @@ struct AIAnalysis: Codable, Hashable, Sendable {
         case moderate = "Moderate"
         case high = "High"
         case veryHigh = "Very High"
+
+        init(from decoder: Decoder) throws {
+            let raw = (try decoder.singleValueContainer().decode(String.self))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            switch raw.lowercased() {
+            case "low": self = .low
+            case "moderate", "medium": self = .moderate
+            case "high": self = .high
+            case "very high", "very-high", "veryhigh", "extreme": self = .veryHigh
+            default:   self = .moderate
+            }
+        }
     }
 
     enum TimeHorizon: String, Codable, CaseIterable, Sendable {
         case shortTerm = "Short-term (days to weeks)"
         case mediumTerm = "Medium-term (1-3 months)"
         case longTerm = "Long-term (3+ months)"
+
+        init(from decoder: Decoder) throws {
+            let raw = (try decoder.singleValueContainer().decode(String.self))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let lower = raw.lowercased()
+            if lower.contains("long") || lower.contains("3+") || lower.contains("3 months") {
+                self = .longTerm
+            } else if lower.contains("medium") || lower.contains("1-3") || lower.contains("1-3 months") {
+                self = .mediumTerm
+            } else {
+                self = .shortTerm
+            }
+        }
     }
 }
 
