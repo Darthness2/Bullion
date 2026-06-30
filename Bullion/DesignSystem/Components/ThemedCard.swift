@@ -1,6 +1,11 @@
 import SwiftUI
 
-/// Minimalist card — single surface fill, hairline border, soft shadow.
+/// Minimalist card with a two-tier elevation system.
+///   - Flat (default): surface + hairline border, no shadow. For list rows
+///     and dense content where hierarchy comes from layout, not depth.
+///   - Elevated (`elevated: true`): surface + soft emerald-tinted shadow +
+///     emerald gradient border. For hero/CTA containers that should lift
+///     off the background — the signature "premium" depth cue.
 /// No glassmorphism. The base container for all content.
 struct ThemedCard<Content: View>: View {
     var padding: CGFloat = Theme.Metrics.cardPadding
@@ -32,12 +37,15 @@ struct ThemedCard<Content: View>: View {
                     .fill(elevated ? Theme.Colors.surfaceElevated : Theme.Colors.surface)
             )
             .overlay(
-                // Hairline border
+                // Border — hairline for flat tier, emerald gradient for elevated.
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(Theme.Gradients.cardBorderGradient, lineWidth: Theme.Metrics.hairline)
+                    .stroke(elevated ? Theme.Gradients.elevatedBorderGradient : Theme.Gradients.cardBorderGradient,
+                            lineWidth: Theme.Metrics.hairline)
             )
-            .shadow(color: Theme.Colors.shadow.opacity(Theme.Metrics.shadowOpacity),
-                    radius: Theme.Metrics.shadowRadius, x: 0, y: 6)
+            // Shadow only on the elevated tier — flat cards stay flat so the
+            // hierarchy reads cleanly without everything floating.
+            .shadow(color: elevated ? Theme.Colors.accentShadow : .clear,
+                    radius: elevated ? Theme.Metrics.shadowRadius : 0, x: 0, y: 6)
             .overlay(
                 // Optional faint sheen for highlighted cards
                 Group {

@@ -48,20 +48,27 @@ enum Theme {
         // Subtle white/black overlay for the faint sheen on elevated cards
         static let sheen            = adaptive(light: Color.black.opacity(0.02), dark: Color.white.opacity(0.03))
 
+        // Emerald-tinted glow used behind hero numbers (portfolio total,
+        // the Markets title) — the signature "premium" depth cue. Soft radial.
+        static let heroGlow         = adaptive(light: cAccentLight.opacity(0.10), dark: cAccentDark.opacity(0.14))
+        // Emerald-tinted shadow for elevated cards — warmer than a flat black
+        // shadow, reinforces the brand at the material layer.
+        static let accentShadow     = adaptive(light: cAccentLight.opacity(0.12), dark: cAccentDark.opacity(0.20))
+
         // Misc
         static let separator        = adaptive(light: cSeparatorLight,         dark: cSeparatorDark)
         static let shadow           = adaptive(light: cShadowLight,            dark: cShadowDark)
     }
 
     enum Metrics {
-        static let cornerRadiusSmall: CGFloat = 10
-        static let cornerRadius: CGFloat = 14
-        static let cornerRadiusLarge: CGFloat = 18
-        static let cardPadding: CGFloat = 18
+        static let cornerRadiusSmall: CGFloat = 12
+        static let cornerRadius: CGFloat = 16
+        static let cornerRadiusLarge: CGFloat = 20
+        static let cardPadding: CGFloat = 20
         static let spacingXS: CGFloat = 4
         static let spacingS: CGFloat = 8
         static let spacing: CGFloat = 14
-        static let spacingL: CGFloat = 22
+        static let spacingL: CGFloat = 24
         static let spacingXL: CGFloat = 32
         static let shadowRadius: CGFloat = 16
         static let shadowOpacity: Double = 0.10
@@ -91,7 +98,7 @@ enum Theme {
     // MARK: - Gradients
 
     enum Gradients {
-        // Accent blue gradient for primary fills (buttons, bars, hero values)
+        // Emerald gradient for primary fills (buttons, bars, hero values)
         static let accentGradient = LinearGradient(
             colors: [Theme.Colors.accentBright, Theme.Colors.accent],
             startPoint: .topLeading, endPoint: .bottomTrailing
@@ -111,10 +118,22 @@ enum Theme {
             colors: [Theme.Colors.background, Theme.Colors.surface.opacity(0.4)],
             startPoint: .top, endPoint: .bottom
         )
-        // Hairline card border — thin white/black edge
+        // Hairline card border — thin white/black edge (flat tier)
         static let cardBorderGradient = LinearGradient(
             colors: [Theme.Colors.textPrimary.opacity(0.18), Theme.Colors.textPrimary.opacity(0.04)],
             startPoint: .topLeading, endPoint: .bottomTrailing
+        )
+        // Elevated card border — emerald-tinted gradient edge for hero/CTA cards.
+        // Warmer and more "premium" than the flat hairline; reads as a highlight.
+        static let elevatedBorderGradient = LinearGradient(
+            colors: [Theme.Colors.accent.opacity(0.28), Theme.Colors.accent.opacity(0.06)],
+            startPoint: .topLeading, endPoint: .bottomTrailing
+        )
+        // Soft radial emerald glow placed behind hero numbers — the signature
+        // depth cue. Use with a large blur radius and low opacity.
+        static let heroGlowGradient = RadialGradient(
+            colors: [Theme.Colors.heroGlow, Color.clear],
+            center: .center, startRadius: 0, endRadius: 180
         )
         // Accent chart line fill
         static let accentLineFillGradient = LinearGradient(

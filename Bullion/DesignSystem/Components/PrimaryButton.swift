@@ -66,7 +66,18 @@ struct PrimaryButton: View {
     @ViewBuilder private var backgroundView: some View {
         switch style {
         case .primary, .gold:
+            // Emerald fill + a subtle top-inner white gloss so the button
+            // reads as a physical pill, not a flat rectangle. The gloss is
+            // a thin linear gradient from white-12% to clear, masked to the
+            // top half — the standard "pressed glass" highlight.
             Theme.Gradients.accentGradient
+                .overlay(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.14), Color.white.opacity(0)],
+                        startPoint: .top, endPoint: .center
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Metrics.cornerRadius, style: .continuous))
+                )
         case .danger:
             LinearGradient(colors: [Theme.Colors.negative, Theme.Colors.negative.opacity(0.85)],
                            startPoint: .topLeading, endPoint: .bottomTrailing)
