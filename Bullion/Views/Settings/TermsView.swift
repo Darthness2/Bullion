@@ -27,6 +27,18 @@ struct TermsView: View {
                 heading: "Third-party services",
                 text: "Use of SnapTrade and AI providers is subject to their respective terms and privacy policies. Bullion does not control and is not responsible for their practices."
             ),
+            LegalSection(
+                heading: "In-app purchases",
+                text: "Bullion does not offer in-app purchases or subscriptions. All features are available without payment. Any costs you incur arise solely from your own accounts with third-party providers (for example, your AI provider's API usage fees), which are billed by those providers directly."
+            ),
+            LegalSection(
+                heading: "Governing law",
+                text: "These terms are governed by the laws of the jurisdiction in which the developer resides, without regard to conflict-of-laws principles. Any disputes shall be resolved in the courts of that jurisdiction."
+            ),
+            LegalSection(
+                heading: "Contact",
+                text: "For support or questions about these terms, contact support@bullion.app or through the App Store listing."
+            ),
         ])
     }
 }

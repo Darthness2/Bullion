@@ -17,7 +17,7 @@ struct PrivacyPolicyView: View {
             ),
             LegalSection(
                 heading: "AI research",
-                text: "If you choose to enable AI research, the API key you enter is stored in your device's iOS Keychain and is sent only to the AI provider you select (Anthropic, OpenAI, or a local Ollama instance). Bullion does not relay it through any other server. The data sent for analysis consists of public market context about the instrument you are viewing."
+                text: "If you choose to enable AI research, the API key you enter is stored in your device's iOS Keychain and is sent only to the AI provider you select (Anthropic, OpenAI, or a local Ollama instance). Bullion does not relay it through any other server. The data sent for analysis consists of public market context about the instrument you are viewing, including computed technical indicators and recent news headlines. Anthropic and OpenAI may retain this data per their own retention policies; Ollama processes it on a model running on your device or a host you control."
             ),
             LegalSection(
                 heading: "Watchlist & preferences",
@@ -25,11 +25,19 @@ struct PrivacyPolicyView: View {
             ),
             LegalSection(
                 heading: "Data retention",
-                text: "We do not maintain user accounts or profiles on Bullion servers — Bullion has no backend. Your SnapTrade credentials and user secret are stored only in your device's iOS Keychain, and you can revoke access at any time by disconnecting in the app or clearing the keys in Settings."
+                text: "We do not maintain user accounts or profiles on Bullion servers — Bullion has no backend. Your SnapTrade credentials and user secret are stored only in your device's iOS Keychain, and you can revoke access at any time by disconnecting in the app or clearing the keys in Settings. AI API keys are likewise stored only in the Keychain and deleted when you clear them."
+            ),
+            LegalSection(
+                heading: "Children's privacy",
+                text: "Bullion is not directed at children under 13 (or the equivalent minimum age in the relevant jurisdiction), and we do not knowingly collect personal information from them. The app is a financial reference tool intended for a general audience."
+            ),
+            LegalSection(
+                heading: "Your choices",
+                text: "You can disconnect your brokerage at any time from Settings or the account detail screen, which removes the SnapTrade user secret from the Keychain. You can clear all AI keys from Settings → AI Research. Deleting the app removes all locally stored data (watchlist, preferences, Keychain items for this app)."
             ),
             LegalSection(
                 heading: "Contact",
-                text: "For privacy questions or requests, contact the developer through the App Store listing."
+                text: "For privacy questions or data requests, contact the developer at support@bullion.app or through the App Store listing."
             ),
         ])
     }
