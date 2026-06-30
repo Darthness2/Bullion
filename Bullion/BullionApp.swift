@@ -5,6 +5,7 @@ import SwiftData
 struct BullionApp: App {
     @State private var env = AppEnvironment()
     @State private var appNav = AppNav()
+    @State private var connectivity = ConnectivityMonitor.shared
     @AppStorage("hasOnboarded") private var hasOnboarded = false
 
     var body: some Scene {
@@ -14,12 +15,14 @@ struct BullionApp: App {
                     .environment(\.appEnv, env)
                     .environment(env.aiSettings)
                     .environment(appNav)
+                    .environment(connectivity)
                     .preferredColorScheme(preferredScheme)
             } else {
                 OnboardingView()
                     .environment(\.appEnv, env)
                     .environment(env.aiSettings)
                     .environment(appNav)
+                    .environment(connectivity)
                     .preferredColorScheme(preferredScheme)
             }
         }

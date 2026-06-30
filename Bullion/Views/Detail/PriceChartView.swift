@@ -112,15 +112,33 @@ struct PriceChartView: View {
     }
 
     private var yDomain: ClosedRange<Double> {
-        let lows = candles.map(\.l)
-        let highs = candles.map(\.h)
-        guard let lo = lows.min(), let hi = highs.max() else { return 0...1 }
-        let pad = (hi - lo) * 0.1
+        // Domain on the plotted close values, not the H/L extremes — the chart
+        // only draws the close line, so padding by H/L compressed the visible
+        // line with excessive top/bottom whitespace.
+        let closes = candles.map(\.c)
+        guard let lo = closes.min(), let hi = closes.max(), hi > lo else { return 0...1 }
+        let pad = (hi - lo) * 0.08
         return (lo - pad)...(hi + pad)
     }
 
+    /// Range-aware x-axis format: intraday ranges show hour:minute; daily/
+    /// weekly/monthly ranges show month + day (or month only for multi-year).
+    /// Previously every range rendered hour:minute, which overlapped and was
+    /// meaningless for 1Y/5Y/MAX.
     private var xAxisFormat: Date.FormatStyle {
-        .dateTime.hour().minute()
+        // Heuristic on the time span of the data, since the chart doesn't
+        // carry its ChartRange. 1D candles span < 1 day; 1W < 8 days; 1M <
+        // 35 days; anything longer gets a coarser label.
+        guard let first = candles.first, let last = candles.last else {
+            return .dateTime.hour().minute()
+        }
+        let span = last.t.timeIntervalSince(first.t)
+        let day: TimeInterval = 86_400
+        if span < day { return .dateTime.hour().minute() }          // 1D
+        if span < day * 8 { return .dateTime.weekday(.abbreviated).day() } // 1W
+        if span < day * 95 { return .dateTime.month(.abbreviated).day() }  // 1M / 3M
+        if span < day * 400 { return .dateTime.month(.abbreviated).year(.twoDigits) } // 1Y
+        return .dateTime.year()                                       // 5Y / MAX
     }
 
     private func handleDrag(value: CGPoint, proxy: ChartProxy, geo: GeometryProxy) {
