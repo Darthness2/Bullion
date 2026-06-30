@@ -139,6 +139,12 @@ struct PortfolioDashboardView: View {
                 .foregroundColor(Theme.Colors.textPrimary)
                 .scaleEffect(pulse ? 1.02 : 1.0)
                 .animation(Theme.Animation.snappy, value: pulse)
+            if vm.hasMultiCurrency {
+                Text("Converted to \(vm.baseCurrency) · live FX")
+                    .font(Typography.caption2)
+                    .foregroundColor(Theme.Colors.textSecondary)
+                    .accessibilityLabel("Converted to \(vm.baseCurrency) using live foreign exchange rates")
+            }
             dayChangePill
         }
         .frame(maxWidth: .infinity)

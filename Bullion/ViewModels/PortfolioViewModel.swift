@@ -10,9 +10,18 @@ final class PortfolioViewModel {
     var isRefreshing = false
     var connectError: String?
     var partialSync = false
+    /// Base currency for portfolio totals. Defaults to USD; each account's
+    /// holdings are converted to this currency before aggregation so a USD
+    /// account + a EUR account sum correctly instead of naive-addition.
+    var baseCurrency: String = "USD"
+    /// Most recent FX rates snapshot used for the totals, so the hero can
+    /// disclose "converted to USD" when multiple currencies are present.
+    var hasMultiCurrency: Bool = false
 
     private let service: any PortfolioService
     private var refreshTask: Task<Void, Never>?
+    /// Cached converted aggregates keyed by baseCurrency; invalidated on load.
+    private var convertedCache: [String: ConvertedAggregates] = [:]
 
     init(service: any PortfolioService) {
         self.service = service
@@ -29,6 +38,9 @@ final class PortfolioViewModel {
             // The direct SnapTrade /accounts call returns accounts in one shot,
             // so there's no per-connection partial-sync state to surface.
             self.partialSync = false
+            // Whether any account is denominated in a currency other than the
+            // base — used to disclose "converted to USD" on the portfolio hero.
+            self.hasMultiCurrency = accs.contains { $0.currency.uppercased() != baseCurrency.uppercased() }
             accounts = accs.isEmpty ? .empty : .loaded(accs)
 
             // Reset so data for accounts removed/disconnected since last load
@@ -45,6 +57,8 @@ final class PortfolioViewModel {
             }
             holdingsByAccount = holdings
             transactionsByAccount = transactions
+            convertedCache = [:]   // invalidate; recompute on next aggregate read
+            await recomputeAggregates()
         } catch {
             holdingsByAccount = [:]
             transactionsByAccount = [:]
@@ -122,12 +136,16 @@ final class PortfolioViewModel {
 
     // MARK: - Aggregates
 
+    /// Raw (native-currency) totals — sum without FX conversion. Used for
+    /// single-currency portfolios and as a fallback when FX is unavailable.
     var totalValue: Double {
-        holdingsByAccount.values.flatMap { $0 }.map(\.marketValue).reduce(0, +)
+        if let c = convertedCache[baseCurrency] { return c.totalValue }
+        return holdingsByAccount.values.flatMap { $0 }.map(\.marketValue).reduce(0, +)
     }
 
     var totalDayChange: Double {
-        holdingsByAccount.values.flatMap { $0 }.compactMap { $0.dayChange }.reduce(0, +)
+        if let c = convertedCache[baseCurrency] { return c.totalDayChange }
+        return holdingsByAccount.values.flatMap { $0 }.compactMap { $0.dayChange }.reduce(0, +)
     }
 
     /// Whether any holding reported a day change. When false, the day-change
@@ -143,12 +161,49 @@ final class PortfolioViewModel {
     }
 
     var totalUnrealizedPL: Double {
-        holdingsByAccount.values.flatMap { $0 }.compactMap { $0.unrealizedPL }.reduce(0, +)
+        if let c = convertedCache[baseCurrency] { return c.totalUnrealizedPL }
+        return holdingsByAccount.values.flatMap { $0 }.compactMap { $0.unrealizedPL }.reduce(0, +)
     }
 
     /// All holdings across accounts.
     var allHoldings: [Holding] {
         holdingsByAccount.values.flatMap { $0 }
+    }
+
+    /// Snapshot of portfolio totals converted to a single base currency so
+    /// multi-currency accounts sum correctly instead of naive-addition.
+    struct ConvertedAggregates {
+        let totalValue: Double
+        let totalDayChange: Double
+        let totalUnrealizedPL: Double
+    }
+
+    /// Recompute portfolio totals, converting each account's holdings to the
+    /// base currency via live FX rates. Accounts whose currency equals the
+    /// base are passed through unchanged. Call after `load()` / `enrichDayChange`
+    /// and whenever the holdings map changes. Idempotent; safe to call repeatedly.
+    @MainActor
+    func recomputeAggregates() async {
+        guard !holdingsByAccount.isEmpty, case let .loaded(accs) = accounts else { return }
+        var totals = (value: 0.0, dayChange: 0.0, pl: 0.0)
+        for acc in accs {
+            guard let holdings = holdingsByAccount[acc.id] else { continue }
+            let currency = acc.currency
+            // Convert each holding's value/dayChange/unrealizedPL to base.
+            for h in holdings {
+                let value = await FXService.shared.convert(h.marketValue, from: currency, to: baseCurrency)
+                totals.value += value
+                if let dc = h.dayChange {
+                    totals.dayChange += await FXService.shared.convert(dc, from: currency, to: baseCurrency)
+                }
+                if let pl = h.unrealizedPL {
+                    totals.pl += await FXService.shared.convert(pl, from: currency, to: baseCurrency)
+                }
+            }
+        }
+        convertedCache[baseCurrency] = ConvertedAggregates(
+            totalValue: totals.value, totalDayChange: totals.dayChange, totalUnrealizedPL: totals.pl
+        )
     }
 
     // MARK: - Day-change enrichment (Phase 3)
@@ -179,5 +234,7 @@ final class PortfolioViewModel {
             }
         }
         holdingsByAccount = updated
+        convertedCache = [:]
+        await recomputeAggregates()
     }
 }
