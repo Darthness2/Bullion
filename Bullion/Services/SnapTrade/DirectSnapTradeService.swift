@@ -147,6 +147,16 @@ final class DirectSnapTradeService: PortfolioService, @unchecked Sendable {
     // MARK: - Registration
 
     /// Registers a SnapTrade user if we don't already hold a user secret.
+    ///
+    /// On HTTP 409 the SnapTrade server already knows our `userId` (e.g. the
+    /// app was reinstalled, or the local keychain secret was wiped while the
+    /// server-side user record and its brokerage authorizations still exist).
+    /// Previously this path cleared the local `userId` and registered a
+    /// *different* user, orphaning the original user and every authorization
+    /// attached to it. We now keep the existing `userId` and surface a clear
+    /// "re-link your brokerage" error so the user re-authorizes via the portal
+    /// (which re-issues a userSecret for the same userId) instead of silently
+    /// accumulating orphaned SnapTrade users on every reinstall.
     private func registerIfNeeded() async throws {
         guard SnapTradeKeyStore.hasPartnerCredentials else {
             throw PortfolioError.notConfigured("Add your SnapTrade client ID and consumer key in Settings → Brokerage to connect.")
@@ -155,8 +165,13 @@ final class DirectSnapTradeService: PortfolioService, @unchecked Sendable {
         do {
             try await registerNewUser()
         } catch PortfolioError.httpError(let code, _) where code == 409 {
-            SnapTradeKeyStore.clearRegistration()
-            try await registerNewUser()
+            // userId already exists server-side. Preserve it; the user re-links
+            // via the Connection Portal, which re-issues a userSecret for this
+            // same userId rather than creating a brand-new orphaned user.
+            if SnapTradeKeyStore.userId == nil {
+                SnapTradeKeyStore.clearRegistration()
+            }
+            throw PortfolioError.notConfigured("This SnapTrade user already exists on the server. Tap Connect Account to re-link your brokerage — your existing connections are preserved.")
         }
     }
 
