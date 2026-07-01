@@ -199,7 +199,7 @@ final class YahooFinanceProvider: MarketDataProvider, @unchecked Sendable {
             Instrument(symbol: "NQ=F", name: "E-Mini Nasdaq 100 Futures", type: .future, exchange: "CME"),
             Instrument(symbol: "CL=F", name: "Crude Oil WTI Futures",     type: .future, exchange: "NYMEX"),
             Instrument(symbol: "GC=F", name: "Gold Futures",              type: .future, exchange: "COMEX"),
-            Instrument(symbol: "YI=F", name: "Silver Futures",            type: .future, exchange: "CBOT"),
+            Instrument(symbol: "SI=F", name: "Silver Futures",             type: .future, exchange: "COMEX"),
             Instrument(symbol: "ZW=F", name: "Wheat Futures",             type: .future, exchange: "CBOT"),
             Instrument(symbol: "ZC=F", name: "Corn Futures",              type: .future, exchange: "CBOT"),
             Instrument(symbol: "HG=F", name: "Copper Futures",            type: .future, exchange: "COMEX"),

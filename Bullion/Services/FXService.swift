@@ -21,30 +21,35 @@ final class FXService: @unchecked Sendable {
         self.session = URLSession(configuration: config)
     }
 
-    /// Convert `amount` from `from` to `to`. Returns the original amount
-    /// (no conversion) when both currencies are equal, or when the rate is
-    /// unavailable (e.g. offline, unknown code). Callers should treat a
-    /// same-currency or unavailable case as "no FX needed" rather than an error.
-    func convert(_ amount: Double, from: String, to: String) async -> Double {
+    /// Convert `amount` from `from` to `to`. Returns nil when the rate is
+    /// unavailable (e.g. offline, unknown code) AND the currencies differ —
+    /// callers must handle nil to avoid silently using an unconverted value.
+    /// Same-currency conversion always returns the original amount.
+    func convert(_ amount: Double, from: String, to: String) async -> Double? {
         let fromU = from.uppercased()
         let toU = to.uppercased()
-        guard !fromU.isEmpty, !toU.isEmpty, fromU != toU else { return amount }
+        guard !fromU.isEmpty, !toU.isEmpty else { return amount }
+        guard fromU != toU else { return amount }
         let rate = await rate(from: fromU, to: toU)
+        guard rate > 0 else { return nil }
         return amount * rate
     }
 
     /// Convert many amounts sharing a source currency to one target.
-    func convertMany(_ amounts: [Double], from: String, to: String) async -> [Double] {
+    /// Returns nil for amounts where the rate is unavailable.
+    func convertMany(_ amounts: [Double], from: String, to: String) async -> [Double?] {
         let fromU = from.uppercased()
         let toU = to.uppercased()
         guard !fromU.isEmpty, !toU.isEmpty, fromU != toU else { return amounts }
         let rate = await rate(from: fromU, to: toU)
+        guard rate > 0 else { return Array(repeating: nil, count: amounts.count) }
         return amounts.map { $0 * rate }
     }
 
     /// Current rate `from -> to` (1 unit of `from` buys `rate` units of `to`).
-    /// Falls back to 1.0 when the rate can't be fetched so callers never crash
-    /// on a missing FX pair — the value is simply left unconverted.
+    /// Returns 0.0 when the rate can't be fetched so callers can distinguish
+    /// a real 1.0 same-currency rate from a failed fetch. Same-currency
+    /// always returns 1.0.
     func rate(from: String, to: String) async -> Double {
         let fromU = from.uppercased()
         let toU = to.uppercased()
@@ -53,7 +58,7 @@ final class FXService: @unchecked Sendable {
         if let cached = cachedRate(key: key) { return cached }
         let yahooSymbol = "\(fromU)\(toU)=X"
         guard let url = URL(string: "https://query1.finance.yahoo.com/v8/finance/chart/\(yahooSymbol.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? yahooSymbol)?interval=1d&range=1d") else {
-            return 1.0
+            return 0.0
         }
         struct ChartResponse: Codable {
             struct Chart: Codable {
@@ -75,9 +80,9 @@ final class FXService: @unchecked Sendable {
                 return rate
             }
         } catch {
-            // Offline / unknown pair — leave unconverted.
+            // Offline / unknown pair — return 0 so convert() knows it failed.
         }
-        return 1.0
+        return 0.0
     }
 
     private func cachedRate(key: NSString) -> Double? {

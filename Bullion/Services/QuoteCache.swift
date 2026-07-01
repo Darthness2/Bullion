@@ -1,12 +1,15 @@
 import Foundation
 
-/// Thread-safe in-memory quote cache with TTL. Stubbed for Milestone 1;
-/// throttling/coalescing of duplicate requests lands in Milestone 2.
+/// Thread-safe in-memory quote cache with TTL. Deduplicates concurrent
+/// requests for the same symbol so N callers share one network fetch.
 actor QuoteCache {
     private struct Entry { let quote: Quote; let cachedAt: Date }
     private struct SparklineEntry { let closes: [Double]; let cachedAt: Date }
     private var cache: [String: Entry] = [:]
     private var sparklines: [String: SparklineEntry] = [:]
+    /// In-flight quote fetch tasks — when non-nil, concurrent callers for the
+    /// same symbol await this task instead of starting a new fetch.
+    private var inFlightQuotes: [String: Task<Quote?, Never>] = [:]
     private let ttl: TimeInterval
     private let sparklineTtl: TimeInterval
     private let maxEntries: Int
@@ -39,6 +42,26 @@ actor QuoteCache {
         for q in quotes { set(q) }
     }
 
+    // MARK: - In-flight dedup
+
+    /// Returns an in-flight task for `symbol` if one exists, so concurrent
+    /// callers share a single network fetch. The task resolves to `Quote?`
+    /// (nil means the fetch failed or returned nothing). Callers should
+    /// `await` the returned task and then `set` the result if non-nil.
+    func inFlightTask(for symbol: String) -> Task<Quote?, Never>? {
+        inFlightQuotes[symbol]
+    }
+
+    /// Register an in-flight task for `symbol`. When the task completes,
+    /// call `clearInFlight(symbol:)` to remove it.
+    func setInFlight(_ symbol: String, task: Task<Quote?, Never>) {
+        inFlightQuotes[symbol] = task
+    }
+
+    func clearInFlight(_ symbol: String) {
+        inFlightQuotes.removeValue(forKey: symbol)
+    }
+
     // MARK: - Sparkline cache (longer TTL — intraday closes don't change as often)
 
     func getSparkline(_ symbol: String) -> [Double]? {
@@ -57,10 +80,6 @@ actor QuoteCache {
     func clear() {
         cache.removeAll()
         sparklines.removeAll()
-    }
-
-    func isStale(_ symbol: String) -> Bool {
-        guard let entry = cache[symbol] else { return true }
-        return Date().timeIntervalSince(entry.cachedAt) > ttl
+        inFlightQuotes.removeAll()
     }
 }

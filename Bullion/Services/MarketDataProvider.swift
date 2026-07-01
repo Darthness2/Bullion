@@ -33,13 +33,17 @@ protocol MarketDataProvider: Sendable {
 // MARK: - Default implementations (convenience)
 
 extension MarketDataProvider {
+    /// Default batch implementation: fans out per-symbol `quote()` calls
+    /// concurrently. Individual symbol failures (404, delisted, halted) are
+    /// skipped rather than killing the whole batch — one bad symbol must
+    /// not collapse Markets/Watchlist/Search to .failed for every symbol.
     func quotes(_ symbols: [String]) async throws -> [Quote] {
-        try await withThrowingTaskGroup(of: Quote.self) { group in
+        await withTaskGroup(of: Quote?.self) { group in
             for symbol in symbols {
-                group.addTask { try await self.quote(symbol) }
+                group.addTask { try? await self.quote(symbol) }
             }
             var result: [Quote] = []
-            for try await q in group { result.append(q) }
+            for await q in group { if let q { result.append(q) } }
             return result
         }
     }

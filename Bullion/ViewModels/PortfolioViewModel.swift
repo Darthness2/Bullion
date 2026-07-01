@@ -21,6 +21,9 @@ final class PortfolioViewModel {
     /// Most recent FX rates snapshot used for the totals, so the hero can
     /// disclose "converted to USD" when multiple currencies are present.
     var hasMultiCurrency: Bool = false
+    /// Whether the last FX conversion had a failure for a non-base currency.
+    /// When true, the totals may be inaccurate and the UI should warn.
+    var fxIncomplete: Bool = false
 
     private let service: any PortfolioService
     private var refreshTask: Task<Void, Never>?
@@ -159,7 +162,6 @@ final class PortfolioViewModel {
     }
 
     var totalDayChangePercent: Double {
-        let totalValue = allHoldings.map(\.marketValue).reduce(0, +)
         guard totalValue > 0 else { return 0 }
         return totalDayChange / totalValue * 100
     }
@@ -190,21 +192,27 @@ final class PortfolioViewModel {
     func recomputeAggregates() async {
         guard !holdingsByAccount.isEmpty, case let .loaded(accs) = accounts else { return }
         var totals = (value: 0.0, dayChange: 0.0, pl: 0.0)
+        var hadFXFailure = false
         for acc in accs {
             guard let holdings = holdingsByAccount[acc.id] else { continue }
             let currency = acc.currency
-            // Convert each holding's value/dayChange/unrealizedPL to base.
             for h in holdings {
                 let value = await FXService.shared.convert(h.marketValue, from: currency, to: baseCurrency)
-                totals.value += value
+                if value == nil && currency.uppercased() != baseCurrency.uppercased() {
+                    hadFXFailure = true
+                }
+                totals.value += value ?? h.marketValue
                 if let dc = h.dayChange {
-                    totals.dayChange += await FXService.shared.convert(dc, from: currency, to: baseCurrency)
+                    let converted = await FXService.shared.convert(dc, from: currency, to: baseCurrency)
+                    totals.dayChange += converted ?? dc
                 }
                 if let pl = h.unrealizedPL {
-                    totals.pl += await FXService.shared.convert(pl, from: currency, to: baseCurrency)
+                    let converted = await FXService.shared.convert(pl, from: currency, to: baseCurrency)
+                    totals.pl += converted ?? pl
                 }
             }
         }
+        fxIncomplete = hadFXFailure
         convertedCache[baseCurrency] = ConvertedAggregates(
             totalValue: totals.value, totalDayChange: totals.dayChange, totalUnrealizedPL: totals.pl
         )
