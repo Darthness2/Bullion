@@ -82,4 +82,60 @@ struct OllamaProvider: AIProvider {
         let decoded = try JSONDecoder().decode(OllamaResponse.self, from: data)
         return decoded.message.content
     }
+
+    // MARK: - Streaming
+
+    func analyzeStream(context: MarketContext, model: String, apiKey: String?) async throws -> AsyncThrowingStream<String, Error> {
+        let body: [String: Any] = [
+            "model": model,
+            "stream": true,
+            "format": "json",
+            "messages": [
+                ["role": "system", "content": AIPromptBuilder.systemPrompt],
+                ["role": "user", "content": AIPromptBuilder.userPrompt(for: context)]
+            ]
+        ]
+
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let endpoint = baseURL.appendingPathComponent("api/chat")
+                    let data = try JSONSerialization.data(withJSONObject: body)
+                    var req = URLRequest(url: endpoint)
+                    req.httpMethod = "POST"
+                    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    req.timeoutInterval = 120
+                    req.httpBody = data
+
+                    let (bytes, response) = try await URLSession.shared.bytes(for: req)
+                    guard let http = response as? HTTPURLResponse else {
+                        continuation.finish(throwing: AIError.invalidResponse("No HTTP response."))
+                        return
+                    }
+                    guard (200..<300).contains(http.statusCode) else {
+                        continuation.finish(throwing: AIError.httpError(http.statusCode, "Ollama stream error"))
+                        return
+                    }
+
+                    // Ollama streams newline-delimited JSON objects, each with
+                    // {"message":{"content":"chunk"},"done":false/true}
+                    for try await line in bytes.lines {
+                        if Task.isCancelled { break }
+                        guard let lineData = line.data(using: .utf8),
+                              let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any]
+                        else { continue }
+                        if let message = json["message"] as? [String: Any],
+                           let content = message["content"] as? String {
+                            continuation.yield(content)
+                        }
+                        if (json["done"] as? Bool) == true { break }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
 }

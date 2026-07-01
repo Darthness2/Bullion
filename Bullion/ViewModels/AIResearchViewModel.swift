@@ -24,6 +24,10 @@ final class AIResearchViewModel {
     var followUpAnswer: String?
     var isAskingFollowUp = false
     var followUpError: String?
+    /// Accumulated streaming text shown live as the model generates tokens.
+    /// Cleared on each new analysis. When the stream finishes, this is
+    /// parsed into a structured AIAnalysis and `state` moves to `.loaded`.
+    var streamingText: String = ""
     var isAnalyzing: Bool {
         if case .loading = state { return true }
         return false
@@ -47,23 +51,34 @@ final class AIResearchViewModel {
         analyzeTask?.cancel()
         followUpTask?.cancel()
         state = .loading
+        streamingText = ""
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                let (analysis, context) = try await self.aiService.analyzeWithContext(
+                let (stream, context) = try await self.aiService.analyzeStreamWithContext(
                     instrument: instrument, provider: self.provider
                 )
-                guard !Task.isCancelled else { return }
-                self.lastAnalysis = analysis
                 self.lastContext = context
+                var accumulated = ""
+                for try await delta in stream {
+                    if Task.isCancelled { break }
+                    accumulated += delta
+                    self.streamingText = accumulated
+                }
+                guard !Task.isCancelled else { return }
+                let analysis = try AIPromptBuilder.parseAnalysis(accumulated)
+                self.lastAnalysis = analysis
+                self.streamingText = ""
                 self.state = .loaded(analysis)
             } catch is CancellationError {
                 // Cancellation is expected when the user taps Cancel or leaves.
             } catch let e as AIError {
                 guard !Task.isCancelled else { return }
+                self.streamingText = ""
                 self.state = .error(e.errorDescription ?? "AI analysis failed.")
             } catch {
                 guard !Task.isCancelled else { return }
+                self.streamingText = ""
                 self.state = .error(error.localizedDescription)
             }
         }

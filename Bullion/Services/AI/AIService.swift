@@ -112,6 +112,42 @@ final class AIService: @unchecked Sendable {
         try await analyzeWithContext(instrument: instrument, provider: provider).0
     }
 
+    /// Stream the analysis token-by-token. Gathers market data first (same
+    /// graceful degradation as analyzeWithContext), then streams the LLM
+    /// response. The caller receives text deltas and must parse the final
+    /// accumulated text via AIPromptBuilder.parseAnalysis when the stream
+    /// finishes. Returns (stream, context) so the VM can cache the context.
+    func analyzeStreamWithContext(
+        instrument: Instrument, provider: any MarketDataProvider
+    ) async throws -> (AsyncThrowingStream<String, Error>, MarketContext) {
+        guard settings.isConfigured else { throw AIError.noAPIKey }
+
+        async let quoteTask = try? await provider.quote(instrument.symbol)
+        async let statsTask = try? await provider.stats(instrument.symbol)
+        async let candlesTask = try? await provider.candles(instrument.symbol, range: .threeM)
+        async let newsTask = try? await provider.news(instrument.symbol)
+
+        let quote = await quoteTask
+        let stats = await statsTask
+        let candles = (await candlesTask) ?? []
+        let news = (await newsTask) ?? []
+
+        if quote == nil && candles.count < 10 {
+            throw AIError.insufficientData(instrument.symbol)
+        }
+
+        let context = buildContext(
+            instrument: instrument, quote: quote, stats: stats,
+            candles: candles, news: news
+        )
+
+        let aiProvider = settings.makeProvider()
+        let stream = try await aiProvider.analyzeStream(
+            context: context, model: settings.selectedModel, apiKey: settings.currentAPIKey()
+        )
+        return (stream, context)
+    }
+
     /// Free-form follow-up question about the most recent analysis. Reuses
     /// the cached market context from the initial analysis so it's cheap
     /// and fast (no re-fetch). If no cached context exists, gathers fresh.

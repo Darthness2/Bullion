@@ -25,6 +25,11 @@ protocol AIProvider: Sendable {
         model: String,
         apiKey: String?
     ) async throws -> String
+    /// Token-by-token streaming of the analysis. Yields text deltas as they
+    /// arrive from the LLM. The final accumulated text is NOT parsed — the
+    /// caller parses it after the stream completes. Cancellation via the
+    /// calling Task propagates to the underlying bytes task.
+    func analyzeStream(context: MarketContext, model: String, apiKey: String?) async throws -> AsyncThrowingStream<String, Error>
 }
 
 extension AIProvider {
@@ -38,6 +43,24 @@ extension AIProvider {
         apiKey: String?
     ) async throws -> String {
         throw AIError.invalidResponse("This provider does not support follow-up chat.")
+    }
+
+    /// Default streaming falls back to the non-streaming analyze and yields
+    /// the full text in one chunk. Providers override with real SSE parsing.
+    func analyzeStream(context: MarketContext, model: String, apiKey: String?) async throws -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    let analysis = try await self.analyze(context: context, model: model, apiKey: apiKey)
+                    let text = try JSONEncoder().encode(analysis)
+                    continuation.yield(String(data: text, encoding: .utf8) ?? "")
+                } catch {
+                    continuation.finish(throwing: error)
+                    return
+                }
+                continuation.finish()
+            }
+        }
     }
 }
 

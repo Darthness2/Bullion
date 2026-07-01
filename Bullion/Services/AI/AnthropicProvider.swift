@@ -93,4 +93,63 @@ struct AnthropicProvider: AIProvider {
         }
         return text
     }
+
+    // MARK: - Streaming
+
+    func analyzeStream(context: MarketContext, model: String, apiKey: String?) async throws -> AsyncThrowingStream<String, Error> {
+        let body: [String: Any] = [
+            "model": model,
+            "max_tokens": 4096,
+            "stream": true,
+            "system": AIPromptBuilder.systemPrompt,
+            "messages": [
+                ["role": "user", "content": AIPromptBuilder.userPrompt(for: context)]
+            ]
+        ]
+
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let data = try JSONSerialization.data(withJSONObject: body)
+                    var req = URLRequest(url: baseURL)
+                    req.httpMethod = "POST"
+                    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    if let apiKey, !apiKey.isEmpty {
+                        req.setValue(apiKey, forHTTPHeaderField: apiKeyHeader)
+                    }
+                    req.setValue(apiVersion, forHTTPHeaderField: versionHeader)
+                    req.timeoutInterval = 120
+                    req.httpBody = data
+
+                    let (bytes, response) = try await URLSession.shared.bytes(for: req)
+                    guard let http = response as? HTTPURLResponse else {
+                        continuation.finish(throwing: AIError.invalidResponse("No HTTP response."))
+                        return
+                    }
+                    guard (200..<300).contains(http.statusCode) else {
+                        continuation.finish(throwing: AIError.httpError(http.statusCode, "Anthropic stream error"))
+                        return
+                    }
+
+                    for try await line in bytes.lines {
+                        if Task.isCancelled { break }
+                        // Anthropic SSE: "event: content_block_delta" then
+                        // "data: {"type":"content_block_delta","delta":{"text":"..."}}"
+                        guard line.hasPrefix("data: ") else { continue }
+                        let payload = line.dropFirst(6)
+                        guard let chunkData = payload.data(using: .utf8),
+                              let json = try? JSONSerialization.jsonObject(with: chunkData) as? [String: Any],
+                              let delta = json["delta"] as? [String: Any],
+                              let text = delta["text"] as? String
+                        else { continue }
+                        continuation.yield(text)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
 }

@@ -115,4 +115,68 @@ struct OpenAIProvider: AIProvider {
         }
         return text
     }
+
+    // MARK: - Streaming
+
+    func analyzeStream(context: MarketContext, model: String, apiKey: String?) async throws -> AsyncThrowingStream<String, Error> {
+        let body = requestBody(
+            messages: [
+                ["role": "system", "content": AIPromptBuilder.systemPrompt],
+                ["role": "user", "content": AIPromptBuilder.userPrompt(for: context)]
+            ],
+            model: model, forAnalysis: true
+        )
+        var streamBody = body
+        streamBody["stream"] = true
+
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let data = try JSONSerialization.data(withJSONObject: streamBody)
+                    var req = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
+                    req.httpMethod = "POST"
+                    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    if let apiKey, !apiKey.isEmpty {
+                        req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+                    }
+                    req.timeoutInterval = 120
+                    req.httpBody = data
+
+                    let (bytes, response) = try await URLSession.shared.bytes(for: req)
+                    guard let http = response as? HTTPURLResponse else {
+                        continuation.finish(throwing: AIError.invalidResponse("No HTTP response."))
+                        return
+                    }
+                    guard (200..<300).contains(http.statusCode) else {
+                        continuation.finish(throwing: AIError.httpError(http.statusCode, "OpenAI stream error (HTTP \(http.statusCode))"))
+                        return
+                    }
+
+                    for try await line in bytes.lines {
+                        if Task.isCancelled { break }
+                        guard line.hasPrefix("data: ") else { continue }
+                        let payload = line.dropFirst(6)
+                        if payload == "[DONE]" { break }
+                        guard let chunkData = payload.data(using: .utf8),
+                              let chunk = try? JSONDecoder().decode(StreamChunk.self, from: chunkData),
+                              let delta = chunk.choices.first?.delta.content
+                        else { continue }
+                        continuation.yield(delta)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    private struct StreamChunk: Codable {
+        struct Choice: Codable {
+            struct Delta: Codable { let content: String? }
+            let delta: Delta
+        }
+        let choices: [Choice]
+    }
 }

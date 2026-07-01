@@ -7,6 +7,7 @@ struct AIResearchView: View {
     @Environment(AISettingsStore.self) private var aiSettings
     @State private var vm: AIResearchViewModel?
     @State private var followUpDraft: String = ""
+    @State private var streamCursorVisible = true
 
     var body: some View {
         ThemedCard {
@@ -57,8 +58,15 @@ struct AIResearchView: View {
                             idleState
                                 .transition(.opacity)
                         case .loading:
-                            loadingState
-                                .transition(.opacity)
+                            // While streaming, show the accumulating text with a
+                            // typing cursor instead of the bare thinking dots.
+                            if vm?.streamingText.isEmpty ?? true {
+                                loadingState
+                                    .transition(.opacity)
+                            } else {
+                                streamingState
+                                    .transition(.opacity)
+                            }
                         case .loaded(let analysis):
                             VStack(alignment: .leading, spacing: Theme.Metrics.spacing) {
                                 analysisContent(analysis)
@@ -85,6 +93,12 @@ struct AIResearchView: View {
             }
         }
         .onDisappear { vm?.cancel() }
+        .onChange(of: instrument.symbol) { _, _ in
+            // Reset state when the instrument changes so we never show the
+            // previous ticker's analysis for a new one.
+            vm?.reset()
+            vm?.streamingText = ""
+        }
     }
 
     private var unconfiguredState: some View {
@@ -222,6 +236,32 @@ struct AIResearchView: View {
         .padding(.vertical, Theme.Metrics.spacing)
     }
 
+    /// Live streaming text with a blinking cursor — shown while the LLM
+    /// generates tokens. Replaces the full-wait spinner once the first
+    /// token arrives, giving the user immediate visual feedback.
+    private var streamingState: some View {
+        VStack(alignment: .leading, spacing: Theme.Metrics.spacing) {
+            HStack(spacing: 6) {
+                ThinkingDots().frame(width: 24, height: 8)
+                Text("Generating…")
+                    .font(Typography.caption)
+                    .foregroundColor(Theme.Colors.textSecondary)
+            }
+            (Text(vm?.streamingText ?? "")
+                .font(Typography.body)
+                .foregroundColor(Theme.Colors.textSecondary)
+             + Text("▍")
+                .font(Typography.body)
+                .foregroundColor(Theme.Colors.accent))
+            .opacity(streamCursorVisible ? 1 : 0.3)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, Theme.Metrics.spacing)
+        .onAppear {
+            streamCursorVisible = true
+        }
+    }
+
     private func analysisContent(_ analysis: AIAnalysis) -> some View {
         VStack(alignment: .leading, spacing: Theme.Metrics.spacing) {
             recommendationHeader(analysis)
@@ -256,6 +296,39 @@ struct AIResearchView: View {
             Text("For informational purposes only — not investment advice.")
                 .font(Typography.caption2)
                 .foregroundColor(Theme.Colors.textSecondary)
+
+            // Copy + Regenerate affordances.
+            HStack(spacing: Theme.Metrics.spacing) {
+                Button {
+                    Haptics.light()
+                    UIPasteboard.general.string = """
+                    \(instrument.symbol) — \(analysis.recommendation.rawValue) (\(analysis.confidence.rawValue))
+                    \(analysis.summary)
+
+                    Bullish: \(analysis.bullishFactors.joined(separator: ", "))
+                    Bearish: \(analysis.bearishFactors.joined(separator: ", "))
+                    Technical: \(analysis.technicalOutlook)
+                    Risk: \(analysis.riskLevel.rawValue) · Horizon: \(analysis.timeHorizon.rawValue)
+                    Generated: \(analysis.generatedAt)
+                    """
+                } label: {
+                    Label("Copy", systemImage: "doc.on.doc")
+                        .font(Typography.caption)
+                        .foregroundColor(Theme.Colors.textSecondary)
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    Haptics.light()
+                    Task { await vm?.analyze(instrument: instrument) }
+                } label: {
+                    Label("Regenerate", systemImage: "arrow.clockwise")
+                        .font(Typography.caption)
+                        .foregroundColor(Theme.Colors.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .disabled(vm?.isAnalyzing == true)
+            }
         }
     }
 
