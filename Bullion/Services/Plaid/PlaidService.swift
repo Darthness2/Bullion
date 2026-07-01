@@ -153,8 +153,7 @@ final class PlaidService: PortfolioService, @unchecked Sendable {
     }
 
     func connectionPortalURL() async throws -> URL {
-        let redirectURI = "\(Secrets.plaidCallbackScheme)://plaid-callback"
-        let data = try await postBackend("/api/link_token", body: ["redirect_uri": redirectURI])
+        let data = try await postBackend("/api/link_token", body: [:])
 
         struct LinkTokenResponse: Decodable {
             let linkToken: String?
@@ -168,7 +167,7 @@ final class PlaidService: PortfolioService, @unchecked Sendable {
         }
 
         // Build the Plaid Link URL — the device opens this in ASWebAuthenticationSession
-        let url = URL(string: "https://cdn.plaid.com/link/v2/stable/link.html?token=\(linkToken)&redirectUri=\(redirectURI)")!
+        let url = URL(string: "https://cdn.plaid.com/link/v2/stable/link.html?token=\(linkToken)")!
         return url
     }
 

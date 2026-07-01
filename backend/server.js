@@ -57,6 +57,9 @@ app.post("/api/link_token", async (req, res) => {
   }
 
   try {
+    // Plaid requires a unique user ID per end user. We generate a stable
+    // random one per device (sent by the app) or use a default.
+    const clientUserId = req.body.client_user_id || `bullion-user-${Date.now()}`;
     const resp = await fetch(`${PLAID_BASE}/link/token/create`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -67,7 +70,7 @@ app.post("/api/link_token", async (req, res) => {
         country_codes: ["US"],
         language: "en",
         client_name: "Bullion",
-        redirect_uri: req.body.redirect_uri || "bullion://plaid-callback",
+        user: { client_user_id: clientUserId },
       })
     });
     const data = await resp.json();
