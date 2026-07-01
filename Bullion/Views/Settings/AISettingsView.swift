@@ -13,6 +13,12 @@ struct AISettingsView: View {
     @State private var openAIKeyDraft: String = AISettingsStore().openAIAPIKey
     @State private var anthropicSaveTask: Task<Void, Never>?
     @State private var openAISaveTask: Task<Void, Never>?
+    /// Track whether the user actually edited each field. Prevents the
+    /// onDisappear flush from overwriting an existing Keychain key with an
+    /// empty draft (which happens when the device is locked before first
+    /// unlock and the Keychain read returns "").
+    @State private var anthropicKeyEdited = false
+    @State private var openAIKeyEdited = false
 
     enum TestResult: Equatable {
         case success(String)
@@ -33,10 +39,17 @@ struct AISettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onDisappear {
             // Flush any pending debounced write when leaving the screen.
+            // Only write if the user actually edited the field — prevents
+            // erasing an existing key when the draft was empty because the
+            // Keychain was unreadable (device locked before first unlock).
             anthropicSaveTask?.cancel()
             openAISaveTask?.cancel()
-            store.anthropicAPIKey = anthropicKeyDraft
-            store.openAIAPIKey = openAIKeyDraft
+            if anthropicKeyEdited {
+                store.anthropicAPIKey = anthropicKeyDraft
+            }
+            if openAIKeyEdited {
+                store.openAIAPIKey = openAIKeyDraft
+            }
         }
     }
 
@@ -112,7 +125,10 @@ struct AISettingsView: View {
                             .foregroundColor(Theme.Colors.textSecondary)
                     }
                 }
-                .onChange(of: anthropicKeyDraft) { _, v in scheduleAnthropicSave(v) }
+                .onChange(of: anthropicKeyDraft) { _, v in
+                    anthropicKeyEdited = true
+                    scheduleAnthropicSave(v)
+                }
             } header: {
                 Text("Credentials")
             } footer: {
@@ -135,7 +151,10 @@ struct AISettingsView: View {
                             .foregroundColor(Theme.Colors.textSecondary)
                     }
                 }
-                .onChange(of: openAIKeyDraft) { _, v in scheduleOpenAISave(v) }
+                .onChange(of: openAIKeyDraft) { _, v in
+                    openAIKeyEdited = true
+                    scheduleOpenAISave(v)
+                }
             } header: {
                 Text("Credentials")
             } footer: {
@@ -227,6 +246,8 @@ struct AISettingsView: View {
                         store.clearKeys()
                         anthropicKeyDraft = ""
                         openAIKeyDraft = ""
+                        anthropicKeyEdited = false
+                        openAIKeyEdited = false
                         testResult = nil
                         withAnimation(Theme.Animation.snappy) { confirmingClear = false }
                     }

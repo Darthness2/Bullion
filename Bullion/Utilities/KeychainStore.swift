@@ -1,11 +1,15 @@
 import Foundation
 import Security
+import os.log
 
-/// Thin Keychain wrapper for storing the backend session token.
-/// SnapTrade `userSecret` never reaches the app — only our backend's
-/// session token is stored here.
+/// Thin Keychain wrapper for storing AI API keys and SnapTrade credentials
+/// (consumerKey, userSecret) directly on-device — the app is backend-less.
+/// Accessibility is AfterFirstUnlockThisDeviceOnly: not synced to iCloud
+/// Keychain, available after first device unlock. Note: Keychain items
+/// survive app uninstall on iOS (only "Erase All Content" clears them).
 enum KeychainStore {
     private static let service = "com.bullion.app"
+    private static let logger = Logger(subsystem: "com.bullion.app", category: "keychain")
 
     /// Stores `value` for `key`, returning whether the write succeeded.
     /// The result is discardable for call sites that don't care, but failures
@@ -22,7 +26,7 @@ enum KeychainStore {
         // else (other than success) is a real failure we shouldn't ignore.
         let deleteStatus = SecItemDelete(baseQuery as CFDictionary)
         guard deleteStatus == errSecSuccess || deleteStatus == errSecItemNotFound else {
-            print("KeychainStore: delete failed for \(key) (OSStatus \(deleteStatus))")
+            logger.error("Delete failed for \(key, privacy: .private) (OSStatus \(deleteStatus))")
             return false
         }
         var addQuery = baseQuery
@@ -32,7 +36,7 @@ enum KeychainStore {
         addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
         guard addStatus == errSecSuccess else {
-            print("KeychainStore: add failed for \(key) (OSStatus \(addStatus))")
+            logger.error("Add failed for \(key, privacy: .private) (OSStatus \(addStatus))")
             return false
         }
         return true

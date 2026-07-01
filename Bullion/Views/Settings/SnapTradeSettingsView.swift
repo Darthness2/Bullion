@@ -15,6 +15,12 @@ struct SnapTradeSettingsView: View {
     @State private var confirmingClear = false
     @State private var clientIdSaveTask: Task<Void, Never>?
     @State private var consumerKeySaveTask: Task<Void, Never>?
+    /// Track whether the user actually edited each field. Prevents the
+    /// onDisappear flush from overwriting an existing Keychain key with an
+    /// empty draft (device locked before first unlock → Keychain read
+    /// returns "" → leaving the screen would erase the existing key).
+    @State private var clientIdEdited = false
+    @State private var consumerKeyEdited = false
 
     enum TestResult: Equatable {
         case success(String)
@@ -38,11 +44,18 @@ struct SnapTradeSettingsView: View {
         .navigationTitle("Brokerage")
         .navigationBarTitleDisplayMode(.inline)
         // Persist any pending debounced write when leaving the screen.
+        // Only write if the user actually edited the field — prevents
+        // erasing an existing consumer key when the draft was empty because
+        // the Keychain was unreadable (device locked before first unlock).
         .onDisappear {
             clientIdSaveTask?.cancel()
             consumerKeySaveTask?.cancel()
-            SnapTradeKeyStore.clientId = clientId.trimmingCharacters(in: .whitespaces)
-            SnapTradeKeyStore.consumerKey = consumerKey.trimmingCharacters(in: .whitespaces)
+            if clientIdEdited {
+                SnapTradeKeyStore.clientId = clientId.trimmingCharacters(in: .whitespaces)
+            }
+            if consumerKeyEdited {
+                SnapTradeKeyStore.consumerKey = consumerKey.trimmingCharacters(in: .whitespaces)
+            }
         }
     }
 
@@ -55,6 +68,7 @@ struct SnapTradeSettingsView: View {
                 .autocorrectionDisabled()
                 .onChange(of: clientId) { _, v in
                     testResult = nil
+                    clientIdEdited = true
                     scheduleClientIdSave(v.trimmingCharacters(in: .whitespaces))
                 }
             HStack {
@@ -74,6 +88,7 @@ struct SnapTradeSettingsView: View {
             }
             .onChange(of: consumerKey) { _, v in
                 testResult = nil
+                consumerKeyEdited = true
                 scheduleConsumerKeySave(v.trimmingCharacters(in: .whitespaces))
             }
         } header: {
@@ -180,6 +195,8 @@ struct SnapTradeSettingsView: View {
                         SnapTradeKeyStore.clearAll()
                         clientId = ""
                         consumerKey = ""
+                        clientIdEdited = false
+                        consumerKeyEdited = false
                         testResult = nil
                         withAnimation(Theme.Animation.snappy) { confirmingClear = false }
                     }
