@@ -1,5 +1,11 @@
 import Foundation
 
+/// Role in a multi-turn conversation.
+enum ChatRole: String, Sendable {
+    case user
+    case assistant
+}
+
 /// Provider-agnostic LLM interface for the research agent.
 /// Supports Anthropic (Claude), OpenAI (GPT), and Ollama (local models).
 /// All use plain URLSession + async/await — no third-party SDKs.
@@ -9,14 +15,28 @@ protocol AIProvider: Sendable {
     var requiresAPIKey: Bool { get }
     var models: [String] { get }
     func analyze(context: MarketContext, model: String, apiKey: String?) async throws -> AIAnalysis
-    /// Free-form follow-up chat. Returns the assistant's plain-text reply.
-    /// Used for "ask a question about this analysis" multi-turn. Default
-    /// implementation throws so providers opt in.
-    func chat(systemPrompt: String, userPrompt: String, model: String, apiKey: String?) async throws -> String
+    /// Multi-turn follow-up chat with conversation history. `history` is the
+    /// prior turns (user/assistant alternating) as raw message dicts ready for
+    /// the provider's API. Returns the assistant's plain-text reply.
+    func chatStream(
+        systemPrompt: String,
+        userPrompt: String,
+        history: [[String: Any]],
+        model: String,
+        apiKey: String?
+    ) async throws -> String
 }
 
 extension AIProvider {
-    func chat(systemPrompt: String, userPrompt: String, model: String, apiKey: String?) async throws -> String {
+    /// Default non-streaming implementation for providers that haven't
+    /// adopted the history-aware chat yet.
+    func chatStream(
+        systemPrompt: String,
+        userPrompt: String,
+        history: [[String: Any]],
+        model: String,
+        apiKey: String?
+    ) async throws -> String {
         throw AIError.invalidResponse("This provider does not support follow-up chat.")
     }
 }

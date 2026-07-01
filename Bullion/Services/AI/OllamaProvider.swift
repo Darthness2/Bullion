@@ -15,22 +15,17 @@ struct OllamaProvider: AIProvider {
         self.baseURL = baseURL
     }
 
-    func analyze(context: MarketContext, model: String, apiKey: String?) async throws -> AIAnalysis {
-        let endpoint = baseURL.appendingPathComponent("api/chat")
-        let requestBody: [String: Any] = [
-            "model": model,
-            "stream": false,
-            "format": "json",
-            "messages": [
-                ["role": "system", "content": AIPromptBuilder.systemPrompt],
-                ["role": "user", "content": AIPromptBuilder.userPrompt(for: context)]
-            ]
-        ]
+    // MARK: - Shared send
 
-        let data = try JSONSerialization.data(withJSONObject: requestBody)
+    private func send(
+        body: [String: Any], timeout: TimeInterval = 120
+    ) async throws -> Data {
+        let endpoint = baseURL.appendingPathComponent("api/chat")
+        let data = try JSONSerialization.data(withJSONObject: body)
         var req = URLRequest(url: endpoint)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.timeoutInterval = timeout
         req.httpBody = data
 
         let (responseData, response) = try await URLSession.shared.data(for: req)
@@ -41,43 +36,50 @@ struct OllamaProvider: AIProvider {
             let body = String(data: responseData, encoding: .utf8) ?? "Unknown error"
             throw AIError.httpError(http.statusCode, body)
         }
+        return responseData
+    }
 
-        struct OllamaResponse: Codable {
-            struct Message: Codable { let role: String; let content: String }
-            let message: Message
-        }
-        let decoded = try JSONDecoder().decode(OllamaResponse.self, from: responseData)
+    struct OllamaResponse: Codable {
+        struct Message: Codable { let role: String; let content: String }
+        let message: Message
+        let done: Bool?
+    }
+
+    func analyze(context: MarketContext, model: String, apiKey: String?) async throws -> AIAnalysis {
+        let body: [String: Any] = [
+            "model": model,
+            "stream": false,
+            "format": "json",
+            "messages": [
+                ["role": "system", "content": AIPromptBuilder.systemPrompt],
+                ["role": "user", "content": AIPromptBuilder.userPrompt(for: context)]
+            ]
+        ]
+        let data = try await send(body: body)
+        let decoded = try JSONDecoder().decode(OllamaResponse.self, from: data)
         return try AIPromptBuilder.parseAnalysis(decoded.message.content)
     }
 
-    func chat(systemPrompt: String, userPrompt: String, model: String, apiKey: String?) async throws -> String {
-        let endpoint = baseURL.appendingPathComponent("api/chat")
-        let requestBody: [String: Any] = [
+    func chatStream(
+        systemPrompt: String,
+        userPrompt: String,
+        history: [[String: Any]],
+        model: String,
+        apiKey: String?
+    ) async throws -> String {
+        var messages: [[String: Any]] = [
+            ["role": "system", "content": systemPrompt]
+        ]
+        messages.append(contentsOf: history)
+        messages.append(["role": "user", "content": userPrompt])
+
+        let body: [String: Any] = [
             "model": model,
             "stream": false,
-            "messages": [
-                ["role": "system", "content": systemPrompt],
-                ["role": "user", "content": userPrompt]
-            ]
+            "messages": messages
         ]
-        let data = try JSONSerialization.data(withJSONObject: requestBody)
-        var req = URLRequest(url: endpoint)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.timeoutInterval = 120   // local models can be slow
-        req.httpBody = data
-        let (responseData, response) = try await URLSession.shared.data(for: req)
-        guard let http = response as? HTTPURLResponse else {
-            throw AIError.invalidResponse("No HTTP response.")
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            throw AIError.httpError(http.statusCode, String(data: responseData, encoding: .utf8) ?? "Unknown error")
-        }
-        struct OllamaResponse: Codable {
-            struct Message: Codable { let role: String; let content: String }
-            let message: Message
-        }
-        let decoded = try JSONDecoder().decode(OllamaResponse.self, from: responseData)
+        let data = try await send(body: body)
+        let decoded = try JSONDecoder().decode(OllamaResponse.self, from: data)
         return decoded.message.content
     }
 }

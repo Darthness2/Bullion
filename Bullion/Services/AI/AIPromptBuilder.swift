@@ -30,7 +30,11 @@ enum AIPromptBuilder {
         lines.append("Analyze \(context.symbol) (\(context.name)) — \(context.type)")
         lines.append("")
         lines.append("## Price & Fundamentals")
-        lines.append("Current price: \(String(format: "%.2f", context.currentPrice))")
+        if context.currentPrice > 0 {
+            lines.append("Current price: \(String(format: "%.2f", context.currentPrice))")
+        } else {
+            lines.append("Current price: unavailable")
+        }
         if let ch = context.dayChange, let pct = context.dayChangePercent {
             lines.append("Day change: \(String(format: "%.2f", ch)) (\(String(format: "%.2f", pct))%)")
         }
@@ -81,50 +85,83 @@ enum AIPromptBuilder {
     }
 
     static func parseAnalysis(_ json: String) throws -> AIAnalysis {
-        // Some models wrap JSON in markdown fences — strip them.
+        // Robust extraction: some models wrap JSON in markdown fences or add
+        // prose before/after. Find the first '{' and the matching closing
+        // '}' via bracket-matching (not lastIndex, which grabs trailing
+        // braces in prose). This handles ```json\n{...}\n```  as well as
+        // "Here is the analysis:\n{...}".
         var cleaned = json.trimmingCharacters(in: .whitespacesAndNewlines)
-        if cleaned.hasPrefix("```") {
-            if let start = cleaned.firstIndex(of: "{"),
-               let end = cleaned.lastIndex(of: "}") {
-                cleaned = String(cleaned[start...end])
-            }
+        if let jsonSubstring = extractFirstJSONObject(in: cleaned) {
+            cleaned = jsonSubstring
         }
         guard let data = cleaned.data(using: .utf8) else {
             throw AIError.invalidResponse("Could not encode response as UTF-8.")
         }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
+
+        // First attempt: standard Codable decode (tolerant enums handle
+        // case-insensitive matching and synonyms).
         do {
-            var analysis = try decoder.decode(AIAnalysis.self, from: data)
-            // If the model omitted generatedAt, use now.
-            return analysis
+            return try decoder.decode(AIAnalysis.self, from: data)
         } catch {
-            // Fallback: try to decode with a default date.
-            struct RawAnalysis: Codable {
-                let recommendation: AIAnalysis.Recommendation
-                let confidence: AIAnalysis.Confidence
-                let summary: String
-                let bullishFactors: [String]
-                let bearishFactors: [String]
-                let technicalOutlook: String
-                let newsSentiment: String
-                let riskLevel: AIAnalysis.RiskLevel
-                let timeHorizon: AIAnalysis.TimeHorizon
+            // Fallback: use a lenient struct that maps null/missing arrays
+            // to empty and defaults missing strings to "".
+            struct RawAnalysis: Decodable {
+                let recommendation: AIAnalysis.Recommendation?
+                let confidence: AIAnalysis.Confidence?
+                let summary: String?
+                let bullishFactors: [String]?
+                let bearishFactors: [String]?
+                let technicalOutlook: String?
+                let newsSentiment: String?
+                let riskLevel: AIAnalysis.RiskLevel?
+                let timeHorizon: AIAnalysis.TimeHorizon?
             }
-            let raw = try decoder.decode(RawAnalysis.self, from: data)
-            return AIAnalysis(
-                recommendation: raw.recommendation,
-                confidence: raw.confidence,
-                summary: raw.summary,
-                bullishFactors: raw.bullishFactors,
-                bearishFactors: raw.bearishFactors,
-                technicalOutlook: raw.technicalOutlook,
-                newsSentiment: raw.newsSentiment,
-                riskLevel: raw.riskLevel,
-                timeHorizon: raw.timeHorizon,
-                generatedAt: Date()
-            )
+            do {
+                let raw = try decoder.decode(RawAnalysis.self, from: data)
+                return AIAnalysis(
+                    recommendation: raw.recommendation ?? .hold,
+                    confidence: raw.confidence ?? .medium,
+                    summary: raw.summary ?? "",
+                    bullishFactors: raw.bullishFactors ?? [],
+                    bearishFactors: raw.bearishFactors ?? [],
+                    technicalOutlook: raw.technicalOutlook ?? "",
+                    newsSentiment: raw.newsSentiment ?? "Mixed",
+                    riskLevel: raw.riskLevel ?? .moderate,
+                    timeHorizon: raw.timeHorizon ?? .shortTerm,
+                    generatedAt: Date()
+                )
+            } catch {
+                throw AIError.invalidResponse("Could not parse AI response as JSON: \(error.localizedDescription)")
+            }
         }
+    }
+
+    /// Extract the first complete JSON object `{...}` from a string using
+    /// bracket matching. Handles nested objects and string-escaped braces.
+    /// Returns nil if no balanced object is found.
+    private static func extractFirstJSONObject(in text: String) -> String? {
+        guard let startIdx = text.firstIndex(of: "{") else { return nil }
+        var depth = 0
+        var inString = false
+        var escaped = false
+        var idx = startIdx
+        while idx < text.endIndex {
+            let ch = text[idx]
+            if escaped { escaped = false; idx = text.index(after: idx); continue }
+            if ch == "\\" && inString { escaped = true; idx = text.index(after: idx); continue }
+            if ch == "\"" { inString.toggle(); idx = text.index(after: idx); continue }
+            if !inString {
+                if ch == "{" { depth += 1 }
+                else if ch == "}" {
+                    depth -= 1
+                    if depth == 0 { return String(text[startIdx...idx]) }
+                }
+            }
+            idx = text.index(after: idx)
+        }
+        return nil
     }
 }
 
@@ -133,6 +170,7 @@ enum AIError: LocalizedError {
     case invalidResponse(String)
     case httpError(Int, String)
     case network(Error)
+    case insufficientData(String)
 
     var errorDescription: String? {
         switch self {
@@ -140,6 +178,7 @@ enum AIError: LocalizedError {
         case .invalidResponse(let m): return "AI returned an invalid response: \(m)"
         case .httpError(let code, let m): return "AI request failed (HTTP \(code)): \(m)"
         case .network(let e):        return e.localizedDescription
+        case .insufficientData(let sym): return "Insufficient market data for \(sym) to run an analysis. Try again later."
         }
     }
 }

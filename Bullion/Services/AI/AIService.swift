@@ -68,22 +68,31 @@ final class AIService: @unchecked Sendable {
         )
     }
 
-    /// Run the full research analysis.
-    func analyze(instrument: Instrument, provider: any MarketDataProvider) async throws -> AIAnalysis {
+    /// Run the full research analysis. Gathers market data concurrently;
+    /// individual source failures (news, stats) are tolerated — the analysis
+    /// proceeds with whatever data is available. Only throws if the minimum
+    /// (quote or candles for indicators) is missing. Returns both the
+    /// analysis and the context used (so callers can cache the context for
+    /// cheap follow-ups).
+    func analyzeWithContext(instrument: Instrument, provider: any MarketDataProvider) async throws -> (AIAnalysis, MarketContext) {
         guard settings.isConfigured else {
             throw AIError.noAPIKey
         }
 
-        // Gather all data concurrently.
-        async let quoteTask = provider.quote(instrument.symbol)
-        async let statsTask = provider.stats(instrument.symbol)
-        async let candlesTask = provider.candles(instrument.symbol, range: .threeM)
-        async let newsTask = provider.news(instrument.symbol)
+        // Gather all data concurrently, tolerating per-source failures.
+        async let quoteTask = try? await provider.quote(instrument.symbol)
+        async let statsTask = try? await provider.stats(instrument.symbol)
+        async let candlesTask = try? await provider.candles(instrument.symbol, range: .threeM)
+        async let newsTask = try? await provider.news(instrument.symbol)
 
-        let quote = try await quoteTask
-        let stats = try await statsTask
-        let candles = try await candlesTask
-        let news = try await newsTask
+        let quote = await quoteTask
+        let stats = await statsTask
+        let candles = (await candlesTask) ?? []
+        let news = (await newsTask) ?? []
+
+        if quote == nil && candles.count < 10 {
+            throw AIError.insufficientData(instrument.symbol)
+        }
 
         let context = buildContext(
             instrument: instrument, quote: quote, stats: stats,
@@ -94,41 +103,49 @@ final class AIService: @unchecked Sendable {
         let model = settings.selectedModel
         let apiKey = settings.currentAPIKey()
 
-        return try await aiProvider.analyze(context: context, model: model, apiKey: apiKey)
+        let analysis = try await aiProvider.analyze(context: context, model: model, apiKey: apiKey)
+        return (analysis, context)
+    }
+
+    /// Backward-compatible thin wrapper around `analyzeWithContext`.
+    func analyze(instrument: Instrument, provider: any MarketDataProvider) async throws -> AIAnalysis {
+        try await analyzeWithContext(instrument: instrument, provider: provider).0
     }
 
     /// Free-form follow-up question about the most recent analysis. Reuses
-    /// cached market data when available so it's cheap; falls back to a
-    /// fresh context gather if needed. Returns the assistant's plain-text
-    /// reply (no JSON parsing — follow-ups are conversational).
+    /// the cached market context from the initial analysis so it's cheap
+    /// and fast (no re-fetch). If no cached context exists, gathers fresh.
+    /// Sends conversation history so the model has memory of prior turns.
     func followUp(
         question: String,
         instrument: Instrument,
         provider: any MarketDataProvider,
-        priorAnalysis: AIAnalysis?
+        priorAnalysis: AIAnalysis?,
+        cachedContext: MarketContext? = nil,
+        history: [(role: ChatRole, text: String)] = []
     ) async throws -> String {
         guard settings.isConfigured else { throw AIError.noAPIKey }
-        // Best-effort context: gather fresh (cheap, cached) so the answer is
-        // grounded in current data even if the initial analysis is stale.
+
+        // Reuse cached context if available; only gather fresh if missing.
+        // This avoids full network latency on every follow-up and prevents
+        // context drift (price moved → assistant contradicts itself).
         let context: MarketContext
-        do {
-            async let quoteTask = provider.quote(instrument.symbol)
-            async let statsTask = provider.stats(instrument.symbol)
-            async let candlesTask = provider.candles(instrument.symbol, range: .threeM)
-            async let newsTask = provider.news(instrument.symbol)
+        if let cached = cachedContext {
+            context = cached
+        } else {
+            async let quoteTask = try? await provider.quote(instrument.symbol)
+            async let statsTask = try? await provider.stats(instrument.symbol)
+            async let candlesTask = try? await provider.candles(instrument.symbol, range: .threeM)
+            async let newsTask = try? await provider.news(instrument.symbol)
             context = buildContext(
                 instrument: instrument,
-                quote: try? await quoteTask,
-                stats: try? await statsTask,
-                candles: (try? await candlesTask) ?? [],
-                news: (try? await newsTask) ?? []
-            )
-        } catch {
-            context = buildContext(
-                instrument: instrument, quote: nil, stats: nil,
-                candles: [], news: []
+                quote: await quoteTask,
+                stats: await statsTask,
+                candles: (await candlesTask) ?? [],
+                news: (await newsTask) ?? []
             )
         }
+
         let systemPrompt = """
         \(AIPromptBuilder.systemPrompt)
 
@@ -150,9 +167,20 @@ final class AIService: @unchecked Sendable {
         Follow-up question: \(question)
         """
         let aiProvider = settings.makeProvider()
-        return try await aiProvider.chat(
-            systemPrompt: systemPrompt, userPrompt: userPrompt,
-            model: settings.selectedModel, apiKey: settings.currentAPIKey()
+
+        // Build the full message array from conversation history + the new
+        // turn. Cap to the last 20 turns to avoid unbounded context.
+        let trimmedHistory = history.suffix(20)
+        let messages = trimmedHistory.map { turn in
+            ["role": turn.role == .user ? "user" : "assistant",
+             "content": turn.text] as [String: Any]
+        }
+        return try await aiProvider.chatStream(
+            systemPrompt: systemPrompt,
+            userPrompt: userPrompt,
+            history: messages,
+            model: settings.selectedModel,
+            apiKey: settings.currentAPIKey()
         )
     }
 }

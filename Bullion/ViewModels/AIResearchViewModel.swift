@@ -33,8 +33,8 @@ final class AIResearchViewModel {
     private let provider: any MarketDataProvider
     private var analyzeTask: Task<Void, Never>?
     private var followUpTask: Task<Void, Never>?
-    private var lastContext: MarketContext?
-    private var lastAnalysis: AIAnalysis?
+    private(set) var lastContext: MarketContext?
+    private(set) var lastAnalysis: AIAnalysis?
 
     init(aiService: AIService, provider: any MarketDataProvider) {
         self.aiService = aiService
@@ -50,11 +50,12 @@ final class AIResearchViewModel {
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                let analysis = try await self.aiService.analyze(
+                let (analysis, context) = try await self.aiService.analyzeWithContext(
                     instrument: instrument, provider: self.provider
                 )
                 guard !Task.isCancelled else { return }
                 self.lastAnalysis = analysis
+                self.lastContext = context
                 self.state = .loaded(analysis)
             } catch is CancellationError {
                 // Cancellation is expected when the user taps Cancel or leaves.
@@ -87,12 +88,18 @@ final class AIResearchViewModel {
         followUpError = nil
         followUpTask?.cancel()
         let q = question
+        // Build conversation history from existing chat for multi-turn context.
+        let history = chat.map { msg -> (role: ChatRole, text: String) in
+            (role: msg.role == .user ? .user : .assistant, text: msg.text)
+        }
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
                 let answer = try await self.aiService.followUp(
                     question: q, instrument: instrument, provider: self.provider,
-                    priorAnalysis: self.lastAnalysis
+                    priorAnalysis: self.lastAnalysis,
+                    cachedContext: self.lastContext,
+                    history: history
                 )
                 guard !Task.isCancelled else { return }
                 self.chat.append(ChatMessage(role: .assistant, text: answer))
