@@ -10,6 +10,10 @@ import AuthenticationServices
 final class DirectSnapTradeService: PortfolioService, @unchecked Sendable {
 
     private let baseHost = "https://api.snaptrade.com"
+    /// All SnapTrade API routes live under `/api/v1`. This prefix must be
+    /// included in both the signed `path` field and the request URL per
+    /// SnapTrade's request-signatures spec.
+    private let apiPrefix = "/api/v1"
     private let session: URLSession
     private let decoder: JSONDecoder
     private let isoFormatter = ISO8601DateFormatter()
@@ -214,13 +218,18 @@ final class DirectSnapTradeService: PortfolioService, @unchecked Sendable {
         do {
             try await registerNewUser()
         } catch PortfolioError.httpError(let code, _) where code == 409 {
-            // userId already exists server-side. Preserve it; the user re-links
-            // via the Connection Portal, which re-issues a userSecret for this
-            // same userId rather than creating a brand-new orphaned user.
-            if SnapTradeKeyStore.userId == nil {
+            // userId already exists server-side (e.g. app reinstalled, keychain
+            // wiped by uninstall but userId survived in UserDefaults). If we
+            // still have the userId but NOT the userSecret, rotate the secret
+            // via resetUserSecret so we can re-link without orphaning the
+            // existing brokerage authorizations. If we have neither, clear
+            // and start fresh.
+            if SnapTradeKeyStore.userId != nil && (SnapTradeKeyStore.userSecret?.isEmpty ?? true) {
+                try await resetUserSecret()
+            } else {
                 SnapTradeKeyStore.clearRegistration()
+                throw PortfolioError.notConfigured("This SnapTrade user already exists on the server. Tap Connect Account to re-link your brokerage — your existing connections are preserved.")
             }
-            throw PortfolioError.notConfigured("This SnapTrade user already exists on the server. Tap Connect Account to re-link your brokerage — your existing connections are preserved.")
         }
     }
 
@@ -235,6 +244,27 @@ final class DirectSnapTradeService: PortfolioService, @unchecked Sendable {
             throw PortfolioError.notConfigured("SnapTrade did not return a user secret. Check your credentials and try again.")
         }
         SnapTradeKeyStore.userId = resp.userId ?? userId
+        SnapTradeKeyStore.userSecret = secret
+    }
+
+    /// Rotate the SnapTrade `userSecret` for an existing `userId`. Used when
+    /// the app is reinstalled (Keychain `userSecret` is wiped by uninstall
+    /// but `userId` survives in UserDefaults) — calling `registerUser` would
+    /// 409, so instead we POST `/snapTrade/resetUserSecret` to get a fresh
+    /// secret for the same user, preserving all existing brokerage
+    /// authorizations. Stores the new secret in the Keychain.
+    private func resetUserSecret() async throws {
+        guard let userId = SnapTradeKeyStore.userId, !userId.isEmpty else {
+            throw PortfolioError.notConfigured("Cannot reset SnapTrade user secret: no userId found.")
+        }
+        struct STResetResponse: Decodable { let userSecret: String? }
+        let resp: STResetResponse = try await send(
+            "POST", "/snapTrade/resetUserSecret", authedUser: false,
+            body: ["userId": userId]
+        )
+        guard let secret = resp.userSecret, !secret.isEmpty else {
+            throw PortfolioError.notConfigured("SnapTrade did not return a new user secret. Try clearing your SnapTrade keys in Settings and re-connecting.")
+        }
         SnapTradeKeyStore.userSecret = secret
     }
 
@@ -330,12 +360,19 @@ final class DirectSnapTradeService: PortfolioService, @unchecked Sendable {
         guard let consumerKey = SnapTradeKeyStore.consumerKey, !consumerKey.isEmpty else {
             throw PortfolioError.notConfigured("SnapTrade consumer key not set. Add it in Settings → Brokerage.")
         }
+        // Per SnapTrade's signing spec, the `path` field must include the
+        // `/api/v1` prefix. Build the full path once and use it for both
+        // signing and the URL so they stay in sync.
+        let fullPath = "\(apiPrefix)\(path)"
         let query = try canonicalQuery(authedUser: authedUser, extra: extraQuery)
+        // Treat an empty body as `null` per spec (a `{}` body must be signed
+        // as `null`, not `{}`).
+        let contentToSign = (body?.isEmpty ?? true) ? nil : body
         guard let signature = SnapTradeSigner.signature(consumerKey: consumerKey,
-                                                        content: body, path: path, query: query) else {
+                                                        content: contentToSign, path: fullPath, query: query) else {
             throw PortfolioError.notConfigured("Could not sign the SnapTrade request. Re-check your consumer key.")
         }
-        guard let url = URL(string: "\(baseHost)\(path)?\(query)") else {
+        guard let url = URL(string: "\(baseHost)\(fullPath)?\(query)") else {
             throw PortfolioError.invalidResponse
         }
         var req = URLRequest(url: url)
@@ -343,7 +380,7 @@ final class DirectSnapTradeService: PortfolioService, @unchecked Sendable {
         req.setValue(signature, forHTTPHeaderField: "Signature")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let body {
+        if let body, !body.isEmpty {
             req.httpBody = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
         }
         return req

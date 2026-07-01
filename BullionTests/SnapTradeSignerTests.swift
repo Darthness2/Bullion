@@ -10,11 +10,11 @@ struct SnapTradeSignerTests {
     func deterministic() {
         let s1 = SnapTradeSigner.signature(
             consumerKey: "test-key", content: ["userId": "abc"],
-            path: "/snapTrade/registerUser", query: "clientId=def"
+            path: "/api/v1/snapTrade/registerUser", query: "clientId=def"
         )
         let s2 = SnapTradeSigner.signature(
             consumerKey: "test-key", content: ["userId": "abc"],
-            path: "/snapTrade/registerUser", query: "clientId=def"
+            path: "/api/v1/snapTrade/registerUser", query: "clientId=def"
         )
         #expect(s1 != nil)
         #expect(s1 == s2)
@@ -23,19 +23,19 @@ struct SnapTradeSignerTests {
     @Test("Signature changes when any input changes")
     func changesWithInput() {
         let base = SnapTradeSigner.signature(
-            consumerKey: "k", content: nil, path: "/p", query: "a=1"
+            consumerKey: "k", content: nil, path: "/api/v1/p", query: "a=1"
         )
         let diffKey = SnapTradeSigner.signature(
-            consumerKey: "K", content: nil, path: "/p", query: "a=1"
+            consumerKey: "K", content: nil, path: "/api/v1/p", query: "a=1"
         )
         let diffPath = SnapTradeSigner.signature(
-            consumerKey: "k", content: nil, path: "/P", query: "a=1"
+            consumerKey: "k", content: nil, path: "/api/v1/P", query: "a=1"
         )
         let diffQuery = SnapTradeSigner.signature(
-            consumerKey: "k", content: nil, path: "/p", query: "a=2"
+            consumerKey: "k", content: nil, path: "/api/v1/p", query: "a=2"
         )
         let diffBody = SnapTradeSigner.signature(
-            consumerKey: "k", content: ["x": 1], path: "/p", query: "a=1"
+            consumerKey: "k", content: ["x": 1], path: "/api/v1/p", query: "a=1"
         )
         #expect(base != diffKey)
         #expect(base != diffPath)
@@ -47,8 +47,9 @@ struct SnapTradeSignerTests {
     func matchesReferenceHMAC() throws {
         // Reproduce the exact canonical string the signer builds, then
         // compute the expected HMAC-SHA256 independently and compare.
+        // The path includes the /api/v1 prefix per SnapTrade's signing spec.
         let consumerKey = "consumer-secret"
-        let path = "/accounts"
+        let path = "/api/v1/accounts"
         let query = "clientId=cid&userId=uid"
         // JSONSerialization with .sortedKeys produces: {"content":null,"path":"/accounts","query":"..."}
         let sigObject: [String: Any] = [
@@ -77,7 +78,7 @@ struct SnapTradeSignerTests {
         let s = SnapTradeSigner.signature(
             consumerKey: "k",
             content: ["userId": "u1", "connectionType": "read"],
-            path: "/snapTrade/login", query: "clientId=c"
+            path: "/api/v1/snapTrade/login", query: "clientId=c"
         )
         #expect(s != nil)
         #expect(!s!.isEmpty)
@@ -89,10 +90,10 @@ struct SnapTradeSignerTests {
         // changes (space -> %20) must produce a different signature than one
         // computed with the raw key — confirming the encodeURI step runs.
         let rawSig = SnapTradeSigner.signature(
-            consumerKey: "key with space", content: nil, path: "/p", query: ""
+            consumerKey: "key with space", content: nil, path: "/api/v1/p", query: ""
         )
         // Manually compute with the raw (un-encoded) key for comparison.
-        let sigObject: [String: Any] = ["content": NSNull(), "path": "/p", "query": ""]
+        let sigObject: [String: Any] = ["content": NSNull(), "path": "/api/v1/p", "query": ""]
         let data = try! JSONSerialization.data(withJSONObject: sigObject, options: [.sortedKeys])
         let rawKey = SymmetricKey(data: Data("key with space".utf8))
         let rawExpected = Data(HMAC<SHA256>.authenticationCode(for: data, using: rawKey))
