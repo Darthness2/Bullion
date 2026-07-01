@@ -16,7 +16,7 @@ struct OnboardingView: View {
         OnboardingPage(
             icon: "hand.raised",
             title: "Privacy & control",
-            body: "Your watchlist and preferences live on your device. When you link a brokerage, SnapTrade handles the secure connection — Bullion never sees your credentials."
+            body: "Your watchlist and preferences live on your device. When you link a brokerage, Plaid handles the secure connection — Bullion never sees your credentials."
         ),
         OnboardingPage(
             icon: "briefcase",

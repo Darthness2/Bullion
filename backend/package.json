@@ -1,0 +1,17 @@
+{
+  "name": "bullion-plaid-backend",
+  "version": "1.0.0",
+  "description": "Thin token-exchange server for Plaid integration. Only purpose: exchange public_token for access_token. All data calls happen client-side.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.0",
+    "node-fetch": "^3.3.2"
+  }
+}

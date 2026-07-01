@@ -1,17 +1,20 @@
 import SwiftUI
 
-/// Dedicated brokerage-connect onboarding screen. Guided trust steps then
-/// the connect CTA. No developer-facing health check — failures surface a
-/// user-friendly error with retry.
+/// Dedicated brokerage-connect onboarding screen. Uses Plaid Link for
+/// secure OAuth-based broker connection. The thin backend handles only
+/// the token exchange; all data calls go directly from the device to Plaid.
 struct ConnectBrokerageView: View {
     @Bindable var vm: PortfolioViewModel
     @Environment(AppNav.self) private var appNav
-    @State private var showingKeySetup = false
-    @State private var hasKeys = SnapTradeKeyStore.hasPartnerCredentials
+    @State private var showingSettings = false
+
+    private var hasBackend: Bool {
+        !PlaidKeyStore.backendURL.trimmingCharacters(in: .whitespaces).isEmpty
+    }
 
     private var buttonTitle: String {
         if vm.isConnecting { return "Connecting…" }
-        return hasKeys ? "Connect Account" : "Set Up SnapTrade"
+        return hasBackend ? "Connect Account" : "Set Up Backend"
     }
 
     var body: some View {
@@ -28,7 +31,7 @@ struct ConnectBrokerageView: View {
                         Text("Connect your brokerage")
                             .font(Typography.title2)
                             .foregroundColor(Theme.Colors.textPrimary)
-                        Text("See your live holdings, balances, and performance across all your accounts.")
+                        Text("Link Fidelity, Schwab, Robinhood, E*TRADE, Vanguard, and more via Plaid's secure OAuth.")
                             .font(Typography.body)
                             .foregroundColor(Theme.Colors.textSecondary)
                             .multilineTextAlignment(.center)
@@ -37,10 +40,9 @@ struct ConnectBrokerageView: View {
                 }
                 .appearAnimation(.scale)
 
-                // Guided trust steps — what happens when you tap Connect.
                 VStack(spacing: Theme.Metrics.spacingS) {
                     trustStep(icon: "lock.shield.fill",
-                              title: "Secure OAuth via SnapTrade",
+                              title: "Secure OAuth via Plaid",
                               sub: "Bullion never sees your credentials.")
                     trustStep(icon: "eye.fill",
                               title: "Read-only access",
@@ -55,11 +57,11 @@ struct ConnectBrokerageView: View {
                     BackendHealthView()
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                    if !SnapTradeKeyStore.hasPartnerCredentials {
+                    if !hasBackend {
                         PrimaryButton(
-                            title: "Add SnapTrade Keys",
+                            title: "Set Up Backend URL",
                             style: .outline,
-                            icon: "key"
+                            icon: "server.rack"
                         ) {
                             appNav.selectedTab = .settings
                         }
@@ -70,22 +72,20 @@ struct ConnectBrokerageView: View {
                 PrimaryButton(
                     title: buttonTitle,
                     style: .primary,
-                    icon: hasKeys ? "lock.shield" : "key.fill",
+                    icon: hasBackend ? "link" : "server.rack",
                     isLoading: vm.isConnecting
                 ) {
-                    if hasKeys {
+                    if hasBackend {
                         Task { await vm.connect() }
                     } else {
-                        // No SnapTrade keys yet — walk the user through entering
-                        // them instead of failing the connect with an error.
-                        showingKeySetup = true
+                        showingSettings = true
                     }
                 }
                 .disabled(vm.isConnecting)
                 .appearAnimation(.rise, index: 3)
 
-                if !hasKeys {
-                    Text("First time? You'll add your free SnapTrade client ID and consumer key — we'll show you where to get them.")
+                if !hasBackend {
+                    Text("First time? Enter the URL of your Plaid backend server in Settings → Brokerage.")
                         .font(Typography.caption)
                         .foregroundColor(Theme.Colors.textSecondary)
                         .multilineTextAlignment(.center)
@@ -114,7 +114,7 @@ struct ConnectBrokerageView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 }
 
-                Text("Bullion never stores your brokerage credentials. SnapTrade handles the connection securely.")
+                Text("Bullion never stores your brokerage credentials. Plaid handles the connection securely — your credentials are entered directly with Plaid and your broker.")
                     .font(Typography.caption)
                     .foregroundColor(Theme.Colors.textSecondary)
                     .multilineTextAlignment(.center)
@@ -133,16 +133,12 @@ struct ConnectBrokerageView: View {
                 .ignoresSafeArea()
             }
         )
-        .onAppear { hasKeys = SnapTradeKeyStore.hasPartnerCredentials }
-        .animation(Theme.Animation.interactive, value: hasKeys)
-        .sheet(isPresented: $showingKeySetup, onDismiss: {
-            hasKeys = SnapTradeKeyStore.hasPartnerCredentials
-        }) {
+        .sheet(isPresented: $showingSettings) {
             NavigationStack {
-                SnapTradeSettingsView()
+                PlaidSettingsView()
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") { showingKeySetup = false }
+                            Button("Done") { showingSettings = false }
                         }
                     }
             }

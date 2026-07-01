@@ -42,7 +42,7 @@ final class PortfolioViewModel {
             self.isLinked = linked
             let accs = try await service.accounts()
             self.isLinked = !accs.isEmpty
-            // The direct SnapTrade /accounts call returns accounts in one shot,
+            // The Plaid /accounts/balance/get call returns accounts in one shot,
             // so there's no per-connection partial-sync state to surface.
             self.partialSync = false
             // Whether any account is denominated in a currency other than the

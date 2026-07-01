@@ -2,10 +2,10 @@ import Foundation
 import Security
 import os.log
 
-/// Thin Keychain wrapper for storing AI API keys and SnapTrade credentials
-/// (consumerKey, userSecret) directly on-device — the app is backend-less.
-/// Accessibility is AfterFirstUnlockThisDeviceOnly: not synced to iCloud
-/// Keychain, available after first device unlock. Note: Keychain items
+/// Thin Keychain wrapper for storing AI API keys and Plaid access token
+/// directly on-device — the app uses a thin backend only for Plaid's token
+/// exchange. Accessibility is AfterFirstUnlockThisDeviceOnly: not synced to
+/// iCloud Keychain, available after first device unlock. Note: Keychain items
 /// survive app uninstall on iOS (only "Erase All Content" clears them).
 enum KeychainStore {
     private static let service = "com.bullion.app"

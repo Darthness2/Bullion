@@ -1,8 +1,9 @@
 import Foundation
 
-/// Abstraction over portfolio data. The live implementation
-/// (`DirectSnapTradeService`) talks to SnapTrade directly from the device —
-/// no backend. `MockPortfolioService` backs previews and tests.
+/// Abstraction over portfolio data. The live implementation (`PlaidService`)
+/// talks to Plaid's API directly from the device, using a thin backend server
+/// only for the OAuth token exchange. `MockPortfolioService` backs previews
+/// and tests.
 protocol PortfolioService: Sendable {
     /// Whether the user has linked any brokerage account.
     var isLinked: Bool { get async }
@@ -12,9 +13,9 @@ protocol PortfolioService: Sendable {
     func holdings(accountId: String) async throws -> [Holding]
     /// Recent transactions for an account.
     func transactions(accountId: String) async throws -> [Transaction]
-    /// Generate a SnapTrade Connection Portal URL (opened via ASWebAuthenticationSession).
+    /// Generate a Plaid Link URL (opened via ASWebAuthenticationSession).
     func connectionPortalURL() async throws -> URL
-    /// Open the Connection Portal in ASWebAuthenticationSession.
+    /// Open the Plaid Link in ASWebAuthenticationSession.
     func openConnectionPortal(url: URL) async throws
     /// Delete a brokerage connection (read-only app: no trading).
     func disconnect(accountId: String) async throws
@@ -31,37 +32,37 @@ enum PortfolioError: LocalizedError {
     case decodingError(Error)
     case authenticationCancelled
     case networkUnreachable
-    /// Missing/invalid local configuration (e.g. SnapTrade keys not entered).
+    /// Missing/invalid local configuration (e.g. Plaid not configured).
     /// The associated message is shown to the user verbatim.
     case notConfigured(String)
 
     var errorDescription: String? {
         switch self {
         case .invalidPortalURL:
-            return "Invalid Connection Portal URL."
+            return "Invalid Plaid Link URL."
         case .invalidResponse:
-            return "Invalid response from SnapTrade."
+            return "Invalid response from Plaid."
         case .httpError(let code, let detail):
             if code == 401 || code == 403 {
-                return "SnapTrade rejected these credentials. Double-check your client ID and consumer key in Settings → Brokerage."
+                return "Plaid rejected this access token. Re-connect your brokerage in Settings → Brokerage."
             }
             if code == 0 {
                 return detail.isEmpty ? "The request could not be completed." : detail
             }
-            return detail.isEmpty ? "SnapTrade error (HTTP \(code))." : "SnapTrade error (HTTP \(code)): \(detail)"
+            return detail.isEmpty ? "Plaid error (HTTP \(code))." : "Plaid error (HTTP \(code)): \(detail)"
         case .decodingError(let error):
-            return "Could not parse the SnapTrade response: \(error.localizedDescription)"
+            return "Could not parse the Plaid response: \(error.localizedDescription)"
         case .authenticationCancelled:
             return "Authentication was cancelled."
         case .networkUnreachable:
-            return "Can't reach SnapTrade. Check your internet connection and try again."
+            return "Can't reach Plaid. Check your internet connection and try again."
         case .notConfigured(let message):
             return message
         }
     }
 }
 
-// MARK: - Mock implementation (Milestone 1)
+// MARK: - Mock implementation
 
 final class MockPortfolioService: PortfolioService, @unchecked Sendable {
     private var linked = false
@@ -83,7 +84,6 @@ final class MockPortfolioService: PortfolioService, @unchecked Sendable {
 
     func holdings(accountId: String) async throws -> [Holding] {
         try await Task.sleep(for: .milliseconds(300))
-        // Deterministic mock holdings.
         return [
             Holding(symbol: "AAPL", name: "Apple Inc.", quantity: 120, avgCost: 165.40,
                     marketValue: 25_718.40, dayChange: 412.80, dayChangePercent: 1.63, allocation: 0.169),
@@ -115,7 +115,7 @@ final class MockPortfolioService: PortfolioService, @unchecked Sendable {
 
     func connectionPortalURL() async throws -> URL {
         try await Task.sleep(for: .milliseconds(400))
-        return URL(string: "https://snaptrade.com/connection-portal?mock=true")!
+        return URL(string: "https://cdn.plaid.com/link?mock=true")!
     }
 
     func openConnectionPortal(url: URL) async throws {

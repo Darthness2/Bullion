@@ -13,11 +13,11 @@ struct HelpView: View {
             ),
             LegalSection(
                 heading: "How do I connect my brokerage?",
-                text: "Go to the Portfolio tab and tap Connect Account. You'll be taken to SnapTrade's secure portal in the system browser to choose your broker and authenticate. Bullion never sees your credentials — only SnapTrade and your broker do."
+                text: "Go to the Portfolio tab and tap Connect Account. You'll be taken to Plaid's secure link flow to choose your broker (Fidelity, Schwab, Robinhood, and more) and authenticate. Bullion never sees your credentials — only Plaid and your broker do."
             ),
             LegalSection(
-                heading: "Why does it say to add SnapTrade keys?",
-                text: "Bullion connects to SnapTrade directly from your device — there's no server. Add your SnapTrade clientId and consumerKey in Settings → Advanced → Brokerage (SnapTrade). They're stored in the iOS Keychain and used only to sign requests to SnapTrade."
+                heading: "Why do I need to set a backend URL?",
+                text: "Bullion uses a thin backend server only for Plaid's token exchange (swapping a public token for an access token). Plaid's client ID and secret stay on that server — they never touch your device. Once connected, all data calls go directly from your device to Plaid. Set the backend URL in Settings → Brokerage."
             ),
             LegalSection(
                 heading: "Why is some data delayed?",
@@ -29,7 +29,7 @@ struct HelpView: View {
             ),
             LegalSection(
                 heading: "Is my data private?",
-                text: "Yes — see the Privacy Policy. Bullion stores your watchlist and preferences locally, never uploads them, and your brokerage credentials are handled exclusively by SnapTrade."
+                text: "Yes — see the Privacy Policy. Bullion stores your watchlist and preferences locally, never uploads them, and your brokerage credentials are handled exclusively by Plaid."
             ),
             LegalSection(
                 heading: "Need more help?",

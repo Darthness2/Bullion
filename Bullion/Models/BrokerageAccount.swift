@@ -1,6 +1,6 @@
 import Foundation
 
-// Normalized by the backend from SnapTrade responses.
+// Normalized by the service layer from Plaid responses.
 
 struct BrokerageAccount: Identifiable, Codable, Hashable, Sendable {
     let id: String

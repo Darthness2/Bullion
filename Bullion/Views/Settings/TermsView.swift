@@ -13,7 +13,7 @@ struct TermsView: View {
             ),
             LegalSection(
                 heading: "No trading",
-                text: "Bullion is a read-only app. It does not execute trades, transmit orders, or modify your brokerage account. Brokerage linking via SnapTrade is used solely to display existing holdings and transactions."
+                text: "Bullion is a read-only app. It does not execute trades, transmit orders, or modify your brokerage account. Brokerage linking via Plaid is used solely to display existing holdings and transactions."
             ),
             LegalSection(
                 heading: "AI-generated content",
@@ -25,7 +25,7 @@ struct TermsView: View {
             ),
             LegalSection(
                 heading: "Third-party services",
-                text: "Use of SnapTrade and AI providers is subject to their respective terms and privacy policies. Bullion does not control and is not responsible for their practices."
+                text: "Use of Plaid and AI providers is subject to their respective terms and privacy policies. Bullion does not control and is not responsible for their practices."
             ),
             LegalSection(
                 heading: "In-app purchases",

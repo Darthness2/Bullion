@@ -8,18 +8,27 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
                     <key>CFBundleURLName</key>
-                    <string>com.meteteoman.bullion.snaptrade</string>
+                    <string>com.meteteoman.bullion.plaid</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>ledger</string>
+				<string>bullion</string>
 			</array>
 		</dict>
 	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
 		<key>NSExceptionDomains</key>
 		<dict>
 			<key>localhost</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+			</dict>
+			<key>127.0.0.1</key>
 			<dict>
 				<key>NSExceptionAllowsInsecureHTTPLoads</key>
 				<true/>

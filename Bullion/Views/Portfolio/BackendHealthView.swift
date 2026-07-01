@@ -1,11 +1,9 @@
 import SwiftUI
 
-/// SnapTrade readiness indicator for the backend-less integration. Shows
-/// whether partner credentials (clientId + consumerKey) are configured, and
-/// optionally validates them against SnapTrade on tap. Green = ready,
-/// amber = keys missing, red = keys rejected.
+/// Plaid backend readiness indicator. Shows whether the backend server URL
+/// is configured and pings the health endpoint to verify it's running.
+/// Green = ready, amber = not configured, red = unreachable.
 struct BackendHealthView: View {
-    @Environment(\.appEnv) private var env
     @State private var status: Status = .unknown
 
     private enum Status { case unknown, checking, ready, missing, invalid }
@@ -38,24 +36,33 @@ struct BackendHealthView: View {
 
     private var label: String {
         switch status {
-        case .unknown:  return "SnapTrade keys"
-        case .checking: return "Checking SnapTrade keys…"
-        case .ready:    return "SnapTrade keys configured"
-        case .missing:  return "Add SnapTrade keys in Settings → Brokerage"
-        case .invalid:  return "SnapTrade keys rejected — tap to recheck"
+        case .unknown:  return "Plaid backend"
+        case .checking: return "Checking backend…"
+        case .ready:    return "Plaid backend connected"
+        case .missing:  return "Set backend URL in Settings → Brokerage"
+        case .invalid:  return "Backend unreachable — tap to recheck"
         }
     }
 
     private func refreshLocal() {
-        status = SnapTradeKeyStore.hasPartnerCredentials ? .ready : .missing
+        let url = PlaidKeyStore.backendURL.trimmingCharacters(in: .whitespaces)
+        status = url.isEmpty ? .missing : .ready
     }
 
     @MainActor
     private func check() async {
-        guard SnapTradeKeyStore.hasPartnerCredentials else { status = .missing; return }
+        let urlString = PlaidKeyStore.backendURL.trimmingCharacters(in: .whitespaces)
+        guard !urlString.isEmpty, let url = URL(string: urlString) else {
+            status = .missing
+            return
+        }
         status = .checking
         do {
-            try await (env.portfolioService as? DirectSnapTradeService)?.validatePartnerCredentials()
+            let (_, response) = try await URLSession.shared.data(from: url.appendingPathComponent("health"))
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                withAnimation(Theme.Animation.interactive) { status = .invalid }
+                return
+            }
             withAnimation(Theme.Animation.interactive) { status = .ready }
         } catch {
             withAnimation(Theme.Animation.interactive) { status = .invalid }

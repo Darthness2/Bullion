@@ -120,9 +120,9 @@ struct SettingsView: View {
                 Label("Price Alerts", systemImage: "bell.badge")
             }
             NavigationLink {
-                SnapTradeSettingsView()
+                PlaidSettingsView()
             } label: {
-                Label("Brokerage (SnapTrade)", systemImage: "building.columns")
+                Label("Brokerage (Plaid)", systemImage: "building.columns")
             }
             NavigationLink {
                 AISettingsView()

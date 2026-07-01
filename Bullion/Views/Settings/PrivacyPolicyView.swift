@@ -12,8 +12,8 @@ struct PrivacyPolicyView: View {
                 text: "Market quotes, charts, and key statistics are fetched on demand from public market-data providers (such as Yahoo Finance). Your search queries and the symbols you view are not transmitted to Bullion servers; they go directly to the market-data provider."
             ),
             LegalSection(
-                heading: "Brokerage linking (SnapTrade)",
-                text: "When you link a brokerage account, Bullion connects you to SnapTrade, which handles the secure OAuth flow in the system browser. Your brokerage credentials are entered directly with SnapTrade and your broker — Bullion never sees or stores them. Bullion talks to SnapTrade directly from your device (no Bullion server); the SnapTrade user secret is stored in your device's iOS Keychain and used only to fetch read-only holdings, balances, and transactions for display in the app."
+                heading: "Brokerage linking (Plaid)",
+                text: "When you link a brokerage account, Bullion connects you to Plaid, which handles the secure OAuth flow. Your brokerage credentials are entered directly with Plaid and your broker — Bullion never sees or stores them. A thin backend server (configured in Settings) handles only the Plaid token exchange; all data calls (holdings, balances, transactions) go directly from your device to Plaid's API. The Plaid access token is stored in your device's iOS Keychain."
             ),
             LegalSection(
                 heading: "AI research",
@@ -25,7 +25,7 @@ struct PrivacyPolicyView: View {
             ),
             LegalSection(
                 heading: "Data retention",
-                text: "We do not maintain user accounts or profiles on Bullion servers — Bullion has no backend. Your SnapTrade credentials and user secret are stored only in your device's iOS Keychain, and you can revoke access at any time by disconnecting in the app or clearing the keys in Settings. AI API keys are likewise stored only in the Keychain and deleted when you clear them."
+                text: "We do not maintain user accounts or profiles on Bullion servers. Your Plaid access token is stored only in your device's iOS Keychain, and you can revoke access at any time by disconnecting in the app or clearing the link in Settings. AI API keys are likewise stored only in the Keychain and deleted when you clear them."
             ),
             LegalSection(
                 heading: "Children's privacy",
@@ -33,7 +33,7 @@ struct PrivacyPolicyView: View {
             ),
             LegalSection(
                 heading: "Your choices",
-                text: "You can disconnect your brokerage at any time from Settings or the account detail screen, which removes the SnapTrade user secret from the Keychain. You can clear all AI keys from Settings → AI Research. Deleting the app removes all locally stored data (watchlist, preferences, Keychain items for this app)."
+                text: "You can disconnect your brokerage at any time from Settings or the account detail screen, which removes the Plaid access token from the Keychain. You can clear all AI keys from Settings → AI Research. Deleting the app removes all locally stored data (watchlist, preferences, Keychain items for this app)."
             ),
             LegalSection(
                 heading: "Contact",

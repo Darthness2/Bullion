@@ -19,8 +19,8 @@ struct BullionApp: App {
                     .preferredColorScheme(preferredScheme)
                     .onOpenURL { url in
                         // Defense-in-depth: ASWebAuthenticationSession consumes
-                        // the SnapTrade callback internally, but if the user
-                        // taps a ledger:// link from outside the app (email,
+                        // the Plaid callback internally, but if the user
+                        // taps a bullion:// link from outside the app (email,
                         // notes), we still handle it gracefully.
                         handleDeepLink(url)
                     }
@@ -39,14 +39,13 @@ struct BullionApp: App {
         .modelContainer(for: [WatchlistItem.self, PriceAlert.self])
     }
 
-    /// Best-effort deep-link handler for the `ledger://snaptrade-callback`
+    /// Best-effort deep-link handler for the `bullion://plaid-callback`
     /// scheme. The primary flow uses ASWebAuthenticationSession which
     /// consumes the callback directly; this handles the external-tap path.
     private func handleDeepLink(_ url: URL) {
-        guard url.scheme == Secrets.snaptradeCallbackScheme else { return }
-        // The SnapTrade callback is consumed by the ASWebAuthenticationSession
-        // wrapper; no further action needed here. If we ever support other
-        // deep links (e.g. open a specific instrument), this is where they'd go.
+        guard url.scheme == Secrets.plaidCallbackScheme else { return }
+        // The Plaid callback is consumed by the ASWebAuthenticationSession
+        // wrapper; no further action needed here.
     }
 
     private var preferredScheme: ColorScheme? {
