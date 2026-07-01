@@ -34,9 +34,9 @@ enum PlaidKeyStore {
     }
 
     /// The URL of the thin backend server that handles the token exchange.
-    /// Set by the user in Settings. Defaults to localhost for development.
+    /// Set by the user in Settings. Defaults to the deployed server.
     static var backendURL: String {
-        get { UserDefaults.standard.string(forKey: backendURLDefaults) ?? "http://127.0.0.1:8787" }
+        get { UserDefaults.standard.string(forKey: backendURLDefaults) ?? "http://108.175.1.159" }
         set { UserDefaults.standard.set(newValue, forKey: backendURLDefaults) }
     }
 

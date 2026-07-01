@@ -1,10 +1,11 @@
 import Foundation
 import AuthenticationServices
 
-/// Plaid-based `PortfolioService`. The app uses a thin backend server ONLY for
-/// the OAuth token exchange (public_token → access_token). All data calls
-/// (holdings, transactions, balances) go directly from the device to Plaid's
-/// API using the access token stored in the Keychain.
+/// Plaid-based `PortfolioService`. The app uses a thin backend server for:
+/// 1. Token exchange (public_token → access_token) — keeps Plaid secret server-side
+/// 2. Data call proxy (holdings, transactions, balances) — the device talks to the
+///    backend which forwards to Plaid. This means the server can return mock data
+///    in demo mode (before Plaid credentials are configured).
 ///
 /// Flow:
 /// 1. Device → backend: POST /api/link_token → gets `link_token`
@@ -13,20 +14,48 @@ import AuthenticationServices
 /// 4. Plaid returns `public_token` via the callback
 /// 5. Device → backend: POST /api/exchange_token → gets `access_token`
 /// 6. Device stores `access_token` in Keychain
-/// 7. Device → Plaid API: holdings/transactions/balances (direct, no backend)
+/// 7. Device → backend: POST /api/plaid/<endpoint> (holdings/transactions/balances)
 final class PlaidService: PortfolioService, @unchecked Sendable {
 
     private let session: URLSession
     private let decoder: JSONDecoder
     private let isoFormatter = ISO8601DateFormatter()
 
-    /// Plaid environment base URL. Determined by the backend's configured env.
-    private let plaidBase: String
-
-    init(session: URLSession = .shared, plaidEnv: String = "sandbox") {
+    init(session: URLSession = .shared) {
         self.session = session
         self.decoder = JSONDecoder()
-        self.plaidBase = "https://\(plaidEnv).plaid.com"
+    }
+
+    // MARK: - Backend helpers
+
+    private var backendBaseURL: String {
+        PlaidKeyStore.backendURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func backendURL(_ path: String) throws -> URL {
+        guard let base = URL(string: backendBaseURL) else {
+            throw PortfolioError.notConfigured("Plaid backend URL is invalid. Set it in Settings → Brokerage.")
+        }
+        return base.appendingPathComponent(path)
+    }
+
+    private func postBackend(_ path: String, body: [String: Any]) async throws -> Data {
+        let url = try backendURL(path)
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        req.timeoutInterval = 60
+
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse else {
+            throw PortfolioError.invalidResponse
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let body = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw PortfolioError.httpError(http.statusCode, body)
+        }
+        return data
     }
 
     // MARK: - PortfolioService
@@ -35,7 +64,10 @@ final class PlaidService: PortfolioService, @unchecked Sendable {
         get async {
             guard PlaidKeyStore.isLinked else { return false }
             do {
-                return try await !rawBalances().accounts.isEmpty
+                let data = try await postBackend("/api/plaid/accounts/balance/get",
+                                                  body: ["access_token": PlaidKeyStore.accessToken ?? ""])
+                let balances = try decoder.decode(PlaidBalancesResponse.self, from: data)
+                return !balances.accounts.isEmpty
             } catch {
                 if isPlaidAuthFailure(error) {
                     PlaidKeyStore.clearLink()
@@ -48,12 +80,14 @@ final class PlaidService: PortfolioService, @unchecked Sendable {
     func accounts() async throws -> [BrokerageAccount] {
         guard PlaidKeyStore.isLinked else { return [] }
         do {
-            let balances = try await rawBalances()
+            let data = try await postBackend("/api/plaid/accounts/balance/get",
+                                             body: ["access_token": PlaidKeyStore.accessToken ?? ""])
+            let balances = try decoder.decode(PlaidBalancesResponse.self, from: data)
             return balances.accounts.map { acc in
                 BrokerageAccount(
                     id: acc.accountId,
                     name: acc.name ?? acc.officialName ?? "Account",
-                    brokerage: PlaidKeyStore.institutionName ?? "Brokerage",
+                    brokerage: balances.item?.institutionName ?? "Brokerage",
                     totalValue: (acc.balances?.current ?? 0) + (acc.balances?.investment ?? 0),
                     currency: acc.balances?.isoCurrencyCode ?? "USD",
                     lastSynced: Date(),
@@ -70,28 +104,38 @@ final class PlaidService: PortfolioService, @unchecked Sendable {
     }
 
     func holdings(accountId: String) async throws -> [Holding] {
-        let holdings = try await rawHoldings()
-        return holdings.securities.compactMap { sec in
-            guard let accountId = sec.accountId, accountId == accountId else { return nil }
-            let qty = sec.quantity ?? 0
-            let price = sec.institutionPrice ?? sec.latestPrice ?? 0
-            let value = qty * price
-            return Holding(
-                symbol: sec.tickerSymbol ?? "—",
-                name: sec.name ?? sec.tickerSymbol ?? "—",
-                quantity: qty,
-                avgCost: sec.costBasis,
-                marketValue: value,
-                dayChange: nil,
-                dayChangePercent: nil,
-                allocation: nil
-            )
-        }
+        let data = try await postBackend("/api/plaid/investments/holdings/get",
+                                        body: ["access_token": PlaidKeyStore.accessToken ?? ""])
+        let resp = try decoder.decode(PlaidHoldingsResponse.self, from: data)
+        return resp.holdings
+            .filter { $0.accountId == accountId }
+            .map { h in
+                let qty = h.quantity ?? 0
+                let price = h.institutionPrice ?? h.latestPrice ?? 0
+                return Holding(
+                    symbol: h.tickerSymbol ?? "—",
+                    name: h.name ?? h.tickerSymbol ?? "—",
+                    quantity: qty,
+                    avgCost: h.costBasis,
+                    marketValue: qty * price,
+                    dayChange: nil,
+                    dayChangePercent: nil,
+                    allocation: nil
+                )
+            }
     }
 
     func transactions(accountId: String) async throws -> [Transaction] {
-        let transactions = try await rawTransactions()
-        return transactions.transactions
+        let now = Date()
+        let start = Calendar.current.date(byAdding: .day, value: -90, to: now) ?? now
+        let body: [String: Any] = [
+            "access_token": PlaidKeyStore.accessToken ?? "",
+            "start_date": isoDateString(start),
+            "end_date": isoDateString(now)
+        ]
+        let data = try await postBackend("/api/plaid/investments/transactions/get", body: body)
+        let resp = try decoder.decode(PlaidTransactionsResponse.self, from: data)
+        return resp.transactions
             .filter { $0.accountId == accountId }
             .map { t in
                 Transaction(
@@ -109,21 +153,8 @@ final class PlaidService: PortfolioService, @unchecked Sendable {
     }
 
     func connectionPortalURL() async throws -> URL {
-        guard let backendURL = URL(string: PlaidKeyStore.backendURL) else {
-            throw PortfolioError.notConfigured("Plaid backend URL is invalid. Set it in Settings → Brokerage.")
-        }
-        let redirectURI = "bullion://plaid-callback"
-        let reqURL = backendURL.appendingPathComponent("api/link_token")
-        var req = URLRequest(url: reqURL)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: ["redirect_uri": redirectURI])
-
-        let (data, response) = try await session.data(for: req)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            let body = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw PortfolioError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0, body)
-        }
+        let redirectURI = "\(Secrets.plaidCallbackScheme)://plaid-callback"
+        let data = try await postBackend("/api/link_token", body: ["redirect_uri": redirectURI])
 
         struct LinkTokenResponse: Decodable {
             let linkToken: String?
@@ -142,78 +173,24 @@ final class PlaidService: PortfolioService, @unchecked Sendable {
     }
 
     func openConnectionPortal(url: URL) async throws {
-        let session = await PlaidWebAuthSession(url: url, scheme: "bullion")
+        let session = await PlaidWebAuthSession(url: url, scheme: Secrets.plaidCallbackScheme)
         try await session.start()
     }
 
     func disconnect(accountId: String) async throws {
-        // Plaid: remove the item (access token)
-        guard let token = PlaidKeyStore.accessToken else { return }
-        let body: [String: Any] = [
-            "client_id": "", // Not needed for client-side calls with access token
-            "secret": "",
-            "access_token": token
-        ]
-        _ = try? await plaidPost("/item/remove", body: body)
+        _ = try? await postBackend("/api/plaid/item/remove",
+                                   body: ["access_token": PlaidKeyStore.accessToken ?? ""])
         PlaidKeyStore.clearLink()
     }
 
     func refresh(accountId: String) async throws {
-        // Plaid syncs automatically; no manual refresh needed for sandbox/production
-    }
-
-    // MARK: - Plaid API calls (direct from device)
-
-    private func rawBalances() async throws -> PlaidBalancesResponse {
-        guard let token = PlaidKeyStore.accessToken else {
-            throw PortfolioError.notConfigured("No Plaid access token. Connect a brokerage first.")
-        }
-        let body: [String: Any] = ["access_token": token]
-        let data = try await plaidPost("/accounts/balance/get", body: body)
-        return try decoder.decode(PlaidBalancesResponse.self, from: data)
-    }
-
-    private func rawHoldings() async throws -> PlaidHoldingsResponse {
-        guard let token = PlaidKeyStore.accessToken else {
-            throw PortfolioError.notConfigured("No Plaid access token. Connect a brokerage first.")
-        }
-        let body: [String: Any] = ["access_token": token]
-        let data = try await plaidPost("/investments/holdings/get", body: body)
-        return try decoder.decode(PlaidHoldingsResponse.self, from: data)
-    }
-
-    private func rawTransactions() async throws -> PlaidTransactionsResponse {
-        guard let token = PlaidKeyStore.accessToken else {
-            throw PortfolioError.notConfigured("No Plaid access token. Connect a brokerage first.")
-        }
-        let now = Date()
-        let start = Calendar.current.date(byAdding: .day, value: -90, to: now) ?? now
-        let body: [String: Any] = [
-            "access_token": token,
-            "start_date": isoDateString(start),
-            "end_date": isoDateString(now)
-        ]
-        let data = try await plaidPost("/investments/transactions/get", body: body)
-        return try decoder.decode(PlaidTransactionsResponse.self, from: data)
+        // Plaid syncs automatically; no manual refresh needed
     }
 
     /// Exchange the public_token (from Plaid Link) for an access_token via
-    /// the thin backend server. Stores the access_token in the Keychain.
+    /// the backend server. Stores the access_token in the Keychain.
     func exchangePublicToken(_ publicToken: String) async throws {
-        guard let backendURL = URL(string: PlaidKeyStore.backendURL) else {
-            throw PortfolioError.notConfigured("Plaid backend URL is invalid. Set it in Settings → Brokerage.")
-        }
-        let reqURL = backendURL.appendingPathComponent("api/exchange_token")
-        var req = URLRequest(url: reqURL)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: ["public_token": publicToken])
-
-        let (data, response) = try await session.data(for: req)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            let body = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw PortfolioError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0, body)
-        }
+        let data = try await postBackend("/api/exchange_token", body: ["public_token": publicToken])
 
         struct ExchangeResponse: Decodable {
             let accessToken: String?
@@ -233,30 +210,10 @@ final class PlaidService: PortfolioService, @unchecked Sendable {
 
     // MARK: - Private helpers
 
-    private func plaidPost(_ path: String, body: [String: Any]) async throws -> Data {
-        guard let url = URL(string: "\(plaidBase)\(path)") else {
-            throw PortfolioError.invalidResponse
-        }
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: body)
-        req.timeoutInterval = 60
-
-        let (data, response) = try await session.data(for: req)
-        guard let http = response as? HTTPURLResponse else {
-            throw PortfolioError.invalidResponse
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            let body = String(data: data, encoding: .utf8) ?? "Unknown"
-            throw PortfolioError.httpError(http.statusCode, body)
-        }
-        return data
-    }
-
     private func parseDate(_ s: String) -> Date? {
         guard !s.isEmpty else { return nil }
-        return isoFormatter.date(from: s) ?? ISO8601DateFormatter().date(from: s)
+        return isoFormatter.date(from: s)
+            ?? ISO8601DateFormatter().date(from: s)
     }
 
     private func isoDateString(_ d: Date) -> String {
@@ -300,11 +257,20 @@ private struct PlaidBalancesResponse: Decodable {
             }
         }
     }
+    struct Item: Decodable {
+        let itemId: String?
+        let institutionName: String?
+        enum CodingKeys: String, CodingKey {
+            case itemId = "item_id"
+            case institutionName = "institution_name"
+        }
+    }
     let accounts: [Account]
+    let item: Item?
 }
 
 private struct PlaidHoldingsResponse: Decodable {
-    struct Security: Decodable {
+    struct Holding: Decodable {
         let accountId: String?
         let securityId: String?
         let quantity: Double?
@@ -324,7 +290,7 @@ private struct PlaidHoldingsResponse: Decodable {
             case name
         }
     }
-    let securities: [Security]
+    let holdings: [Holding]
 }
 
 private struct PlaidTransactionsResponse: Decodable {
