@@ -123,7 +123,10 @@ struct InstrumentDetailView: View {
             } else {
                 PriceChartView(
                     candles: vm?.candles.value ?? [],
-                    previousClose: vm?.quote.value?.previousClose,
+                    // The prev-close reference only means something against
+                    // today's intraday line; on 1W+ it's noise pinned near
+                    // the right edge.
+                    previousClose: vm?.selectedRange == .oneD ? vm?.quote.value?.previousClose : nil,
                     showSMA20: showSMA20,
                     showBollinger: showBollinger
                 )
